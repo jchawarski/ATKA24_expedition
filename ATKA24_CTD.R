@@ -38,10 +38,10 @@ write.csv(stn1, "ATKA24_01_CTD3_heave.depth.csv")
 
 # 1) Read in files AZFP files by profile
 
-nano1 <- read.csv("AZFP_nano/Intermediate/ATKA24_01_CTD1_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")
+nano <- read.csv("AZFP_nano/Intermediate/ATKA24_01_CTD1_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")
 
-nano.meta <- nano1[2:dim(nano1)[1],1:6]      # select the metadata portion 
-colnames(nano.meta) <- nano1[1,1:6]         # assign the headers to the metadata
+nano.meta <- nano[2:dim(nano)[1],1:6]      # select the metadata portion 
+colnames(nano.meta) <- nano[1,1:6]         # assign the headers to the metadata
 
 # convert azfp meta datetime
 
@@ -68,11 +68,73 @@ stn1 %>% group_by(round(interval)) %>% summarise(depth = mean(Depth),
                                           conductivity = mean(Conductivity),
                                           salinity = mean(Salinity),
                                           temperature = mean(Temperature),
-                                          turbidity = mean(Turbidity))
+                                          turbidity = mean(Turbidity),
+                                          pressure = mean(Pressure))
 colnames(stn.sum)[1] <- "interval"
+stn.sum$datetime <- as.POSIXct(stn.sum$interval ,origin = "1970-01-01",tz = "UTC")
 
-stn1 %>% ggplot(aes(x=Depth, y=Temperature), color="blue") + geom_line() + coord_flip() + scale_x_reverse()
-stn.sum %>% ggplot(aes(x=depth, y=temperature), color="blue") + geom_line() + coord_flip() + scale_x_reverse()
+# calculate mean temperature, salinity, pressure to a range of 50 m below probe
+# define function to calculate rolling mean for a given window size
+# accurate sounds speed adjustments 
+rolling_mean <- function(x, depth, window = 50) {
+  sapply(1:length(x), function(i) {
+    # Define the range for averaging (depth[i] to depth[i] + window)
+    lower_bound <- depth[i]
+    upper_bound <- lower_bound + window
+    
+    # Get the values within this depth range
+    idx <- which(depth >= lower_bound & depth <= upper_bound)
+    
+    # If no values fall in the range, return NA
+    if(length(idx) == 0) return(NA)
+    
+    # Calculate the mean
+    mean(x[idx], na.rm = TRUE)
+  })
+}
+
+stn.sum$temperature_50m_mean <- rolling_mean(stn.sum$temperature, stn.sum$depth)
+stn.sum$salinity_50m_mean <- rolling_mean(stn.sum$salinity, stn.sum$depth)
+stn.sum$soundspeed_50m_mean <- rolling_mean(stn.sum$sound_speed, stn.sum$depth)
+stn.sum$pressure_50m_mean <- rolling_mean(stn.sum$pressure, stn.sum$depth)
+
+# Assign constants for calculating a rolling absorption coefficient
+# 200 kHz quad transducer
+c <-1450.5     # original sound speed
+coeff_abs <- 0.0230 # original coefficient of absorption
+t <- 0.003        # pulse duration (s)
+y <- -19.7   # two-way beam angle  --- Adjust based on transducer 
+f <- 200000 # frequency in Hz
+
+# calculate the absorption coefficient for each 50 m depth interval
+require(oce)
+coeff_abs_new <-swSoundAbsorption(frequency= f,    # new absorption coefficient
+                                  salinity = stn.sum$salinity_50m_mean,
+                                  temperature = stn.sum$temperature_50m_mean,
+                                  pressure = stn.sum$pressure_50m_mean, 
+                                  pH =8,
+                                  formulation = "francois-garrison") 
+
+stn.sum$coeff_abs_50m <- coeff_abs_new
+
+
+# plots full temperature profile (downcast and upcast)
+stn.sum %>% 
+  ggplot(aes(x=depth, y=temperature), color="blue") +
+  geom_line() + 
+  coord_flip() + scale_x_reverse()
+
+# plots the profiler depth and time
+stn.sum %>% 
+  ggplot(aes(x=datetime, y=-depth)) +
+  geom_line() + theme_bw()
+
+#plots the sound speed profile
+stn.sum %>% ggplot(aes(x=depth, y=sound_speed)) + 
+  geom_line() + 
+  coord_flip() + 
+  scale_x_reverse() + 
+  theme_bw()
 
 
 # round the AZFP interval to the nearest second
@@ -85,7 +147,6 @@ nano.meta$interval <- period_to_seconds(lubridate::seconds(nano.meta$datetime))
 nano.ctd <- nano.meta %>% 
   left_join(., stn.sum, by="interval")
   
-# calculate the mean
 
 # Constants for Sv calculation:
 
@@ -95,32 +156,43 @@ vtx < - 1.114000015259e+02 # voltage sent to the transducer, or transmit voltage
 a <- 2.319999970496e-02 # slope of the detector response (Volt/dB), read as DS from XML
 el_max <- 1.423999938965e+02 # Echo Level at the transducer that produces full scale output, read as EL from XML
 
-c <-1450.5     # original sound speed
-coeff_abs <- 0.0230 # original coefficient of absorption
-t <- 0.003        # pulse duration (s)
-
-y <- -19.7   # two-way beam angle  --- Adjust based on transducer 
-
-f <- 200000 # frequency in Hz
-
 # 200 kHz quad transducer
 c <-1450.5     # original sound speed
 coeff_abs <- 0.0230 # original coefficient of absorption
 t <- 0.003        # pulse duration (s)
-y <- -21               # two-way beam angle  --- Adjust based on transducer 
-f_nominal <- 365000 # nominal frequency in Hz   -- Adjust based on transducer
-f <- 365000        # center frequency         NOTE: for wideband data, these are different values
+y <- -19.7   # two-way beam angle  --- Adjust based on transducer 
+f <- 200000 # frequency in Hz
 
 
-# calculate the absorption coefficient for each 50 m depth interval
+# Isolate the Sv matrix from the exported file
+nano.sv <- nano[2:dim(nano)[1],7:dim(nano)[2]]  # selects only the Sv matrix from the exported file
+nano.sv[nano.sv==""] <- -999                    # replaces the blank cells of matrix
+nano.sv <- matrix(as.numeric(unlist(nano.sv)),nrow=nrow(nano.sv))
 
-coeff_abs_new <-swSoundAbsorption(frequency= f_nominal,    # new absorption coefficient
-                                  salinity = sal,
-                                  temperature = temp,
-                                  pressure = p, 
-                                  pH =8,
-                                  formulation = "francois-garrison") 
 
+# Set variables for range matrix calculation - This works
+Range_start <- as.numeric(nano.meta$Range_start)[1] # all values in the df are the same.
+Range_stop <- as.numeric(nano.meta$Range_stop)[1]
+Sample_count <- as.numeric(nano.meta$Sample_count)[1]
+
+# calculate range for each horizontal sample - This works
+nano.range <- sapply(1:dim(nano.sv)[2], function(i) Range_start + ((Range_stop-Range_start)/Sample_count)*(i+0.5))    
+nano.range <- matrix(nano.range, nrow=dim(nano.sv)[1], ncol = dim(nano.sv)[2], byrow = T) # creates the full range matrix
+
+# calculate time matrix - this uses a constant sounds speed
+time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) #time for the signal to return 
+
+# calculate a new range matrix - this should use a variable sound speed as the probe is moving. range needs to be adjusted per ping
+# the per-ping adjustment to sounds speed is only valid for the portion of the profile where we have measured sound speed
+# should trim the acoustic profile ahead of time to avoid create NA values?
+nano.range_new <- apply(time.mat, 2, function(i) i*c_new/2-c_new*t/4)   #new range matrix
+
+# calculate power matrix
+power<- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10(c*t*equi_beam_angle/2) 
+
+Sv_new <- power+20*log10(nano.range_new)+2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
+x <- 10*log10(c_new*t*equi_beam_angle/2)  # 10log10(c*tau*psi/2) is a vector - subtraction of vector from matrices requires special formulas  
+Sv_new <- apply(Sv_new, 2, function(i) i-x) # subtract the final term from the rest of the calculation
 
 
 # view data and make any adjustments
