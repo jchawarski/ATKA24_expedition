@@ -103,8 +103,10 @@ stn.sum$pressure_50m_mean <- rolling_mean(stn.sum$pressure, stn.sum$depth)
 c <-1450.5     # original sound speed
 coeff_abs <- 0.0230 # original coefficient of absorption
 t <- 0.003        # pulse duration (s)
-y <- -19.7   # two-way beam angle  --- Adjust based on transducer 
+y <- 1.071000006050e-02 # steridians BP from XML file - two-way beam angle  --- Adjust based on transducer 
 f <- 200000 # frequency in Hz
+
+
 
 # calculate the absorption coefficient for each 50 m depth interval
 require(oce)
@@ -138,30 +140,23 @@ stn.sum %>% ggplot(aes(x=depth, y=sound_speed)) +
 
 
 # round the AZFP interval to the nearest second
-
 nano.meta$interval <- period_to_seconds(lubridate::seconds(nano.meta$datetime))
 
 
 # bind the two datasets together
-
 nano.ctd <- nano.meta %>% 
   left_join(., stn.sum, by="interval")
-  
 
-# Constants for Sv calculation:
+# Constants for Sv calculation:          - most of these are not needed as they fall under the 'power' terms
+# psi <- 10*log10(1.071000006050e-02) # dB re 1 Sr
+#tvr <- 1.698999938965e+02 # transmit voltage response, dB re 1uPa/Volt at 1 m, read as TVR 
+#vtx < - 1.114000015259e+02 # voltage sent to the transducer, or transmit voltage, read as VTX from XML
+#a <- 2.319999970496e-02 # slope of the detector response (Volt/dB), read as DS from XML
+#el_max <- 1.423999938965e+02 # Echo Level at the transducer that produces full scale output, read as EL from XML
 
-eps <- 10*log10(1.071000006050e-02) # dB re 1 Sr
-tvr <- 1.698999938965e+02 # transmit voltage response, dB re 1uPa/Volt at 1 m, read as TVR 
-vtx < - 1.114000015259e+02 # voltage sent to the transducer, or transmit voltage, read as VTX from XML
-a <- 2.319999970496e-02 # slope of the detector response (Volt/dB), read as DS from XML
-el_max <- 1.423999938965e+02 # Echo Level at the transducer that produces full scale output, read as EL from XML
 
-# 200 kHz quad transducer
-c <-1450.5     # original sound speed
-coeff_abs <- 0.0230 # original coefficient of absorption
-t <- 0.003        # pulse duration (s)
-y <- -19.7   # two-way beam angle  --- Adjust based on transducer 
-f <- 200000 # frequency in Hz
+#equi_beam_angle <- 10^((y+20*log10(f_nominal/f))/10)     # this is the previous equation using a broadband transducer   
+equi_beam_angle <- 10*log10(y)
 
 
 # Isolate the Sv matrix from the exported file
@@ -175,24 +170,64 @@ Range_start <- as.numeric(nano.meta$Range_start)[1] # all values in the df are t
 Range_stop <- as.numeric(nano.meta$Range_stop)[1]
 Sample_count <- as.numeric(nano.meta$Sample_count)[1]
 
-# calculate range for each horizontal sample - This works
+# calculate range for each horizontal sample
+# this is the predicted range based on the default values entered in AZFPlink during deployment
 nano.range <- sapply(1:dim(nano.sv)[2], function(i) Range_start + ((Range_stop-Range_start)/Sample_count)*(i+0.5))    
 nano.range <- matrix(nano.range, nrow=dim(nano.sv)[1], ncol = dim(nano.sv)[2], byrow = T) # creates the full range matrix
 
+# TVG Range Correction
+# Need to include a TVG range correction
+# According to Echoview half a pulse length is appropriate, confirm with Steve
+# Estimate correction offset value
+
+  Fs <- 64000 # Hz, digitization rate, or the frequency at which the analog-to-digital converter is sampling
+  samperf <-  1/Fs # microseconds between samples
+  TVG_corr <- (t/samperf)*(1/2)  # samples pulse length divided by samples, divided by two
+  
+# how do I apply this value to range???
+  
+
 # calculate time matrix - this uses a constant sounds speed
-time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) #time for the signal to return 
+# calculates the time for the signal to return based on the pulse length and nominal sound speed
+time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) 
+#assign sound speed from CTD data
+c_new <- nano.ctd$soundspeed_50m_mean
 
 # calculate a new range matrix - this should use a variable sound speed as the probe is moving. range needs to be adjusted per ping
 # the per-ping adjustment to sounds speed is only valid for the portion of the profile where we have measured sound speed
 # should trim the acoustic profile ahead of time to avoid create NA values?
-nano.range_new <- apply(time.mat, 2, function(i) i*c_new/2-c_new*t/4)   #new range matrix
+nano.range_new <- apply(time.mat, 2, function(i) i*c_new/2-c_new*t/4)   #new range matrix  - solving for range (R) in 20logR-2aR-10log(c*t*)
 
-# calculate power matrix
-power<- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10(c*t*equi_beam_angle/2) 
+nano.range_new[1000:1005,1:5] # double check that dynamic sound speed results in a dynamic range result
 
-Sv_new <- power+20*log10(nano.range_new)+2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
-x <- 10*log10(c_new*t*equi_beam_angle/2)  # 10log10(c*tau*psi/2) is a vector - subtraction of vector from matrices requires special formulas  
-Sv_new <- apply(Sv_new, 2, function(i) i-x) # subtract the final term from the rest of the calculation
+
+
+# calculate nominal power matrix - isolates the power terms, removing any variables that include impacted by sounds speed. 
+power<- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10((c*t*y)/2) 
+
+power[1000:1005,1:10]
+
+
+# Calculate Sv - Sv = power + spherical spreading loss + absorption loss - volume reverberation coefficient
+  # spherical spreading = 20log10(R) = 20*log10(nano.range_new)  -- this is a range matrix
+    spread_loss <- 20*log10(nano.range_new)
+  # absorption loss = 2ar = 2*nano.ctd$coeff_abs_50m*nano.range_new -- this is a vector that uses absorption calculated out to 50 m from transducer
+    abs_loss <- 2*nano.ctd$coeff_abs_50m*nano.range_new 
+  # volume reverberation coefficient = 10log10(c*t*psi/2) = 10*log10(c_new*t*y/2)
+    reverb_coeff <- 10*log10(c_new*t*y/2)
+
+#Sv_new <- power+20*log10(nano.range_new) + 2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
+
+# COMPUTATIONALLLY INTENSIVE - not working
+Sv_new <- apply(power, 2, function(i) i+spread_loss+abs_loss-reverb_coeff) # subtract the final term from the rest of the calculation
+
+
+# add a calibration offset to all Sv values to account for system bandwidth effects for volume backscatter
+# see section 11.5 in AZFP manual, table 3. 
+Sv_offset <- 1.2 # dB --- this value is for a 300 microsecond pulse length at 200 kHz
+
+#add the Sv offset to the entire Sv matrix prior to calculating means
+Sv_new <- apply(Sv_new, 2, function(i) i-Sv_offset) # not tested
 
 
 # view data and make any adjustments
