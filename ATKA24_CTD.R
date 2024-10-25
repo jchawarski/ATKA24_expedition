@@ -214,11 +214,11 @@ power[1000:1005,1:10]
   # absorption loss = 2ar = 2*nano.ctd$coeff_abs_50m*nano.range_new -- this is a vector that uses absorption calculated out to 50 m from transducer
     abs_loss <- 2*nano.ctd$coeff_abs_50m*nano.range_new 
   # volume reverberation coefficient = 10log10(c*t*psi/2) = 10*log10(c_new*t*y/2)
-    reverb_coeff <- 10*log10(c_new*t*y/2)
+    reverb_coeff <- 10*log10(c_new*t*y/2)  # THIS NEEDS TO BE RECALCULATED TO ADJUST THE TWO WAY BEAM ANGLE FOR EACH C_NEW VALUE (see Demer et al 2015)
 
 #Sv_new <- power+20*log10(nano.range_new) + 2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
 
-# COMPUTATIONALLLY INTENSIVE - not working
+# COMPUTATIONALLLY INTENSIVE - not working might need to rework into invidivual steps
 Sv_new <- apply(power, 2, function(i) i+spread_loss+abs_loss-reverb_coeff) # subtract the final term from the rest of the calculation
 
 
