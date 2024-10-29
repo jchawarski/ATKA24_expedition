@@ -109,7 +109,7 @@ stn.sum$pressure_50m_mean <- rolling_mean(stn.sum$pressure, stn.sum$depth)
       # 200 kHz quad transducer
       c <-1450.5     # original sound speed
       coeff_abs <- 0.0230 # original coefficient of absorption
-      t <- 0.003        # pulse duration (s)
+      t <- 0.0003        # pulse duration (s)
       y <- 1.071000006050e-02 # steridians BP from XML file - two-way beam angle  --- Adjust based on transducer 
       f <- 200000 # frequency in Hz
       # calculate the absorption coefficient for each 50 m depth interval
@@ -186,15 +186,25 @@ nano.range <- matrix(nano.range, nrow=dim(nano.sv)[1], ncol = dim(nano.sv)[2], b
         #  TVG Range Correction - Need to figure out how to apply this to range measurements
         #  Need to include a TVG range correction
         #  According to Echoview half a pulse length is appropriate, confirm with Steve
-        #  Estimate correction offset value
+         #  Estimate correction offset value
         
-        #  Fs <- 64000 # Hz, digitization rate, or the frequency at which the analog-to-digital converter is sampling
-        #  samperf <-  1/Fs # microseconds between samples
-        #  TVG_corr <- (t/samperf)*(1/2)  # samples pulse length divided by samples, divided by two
+          Fs <- 64000 # Hz, digitization rate, or the frequency at which the analog-to-digital converter is sampling
+          samperf <-  1/Fs # microseconds between samples
+          TVG_corr <- (t/samperf)*(1/2)*Range_stop/Sample_count # meters, pulse length divided by samples, divided by two, converted to meters
+          TVGr_corr <- TVG_corr # meters per sample
+          
+          # or
+          
+          #(c*t)/4 # in m which would correctly translate to
+          TVG_corr <- c_new*t/4   # in m --- substract this from the range matrix
+          
+          
 
 # calculate time matrix - this uses a constant sounds speed
 # calculates the time for the signal to return based on the pulse length and nominal sound speed
 time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) 
+time.mat[1000:1005,1:10]
+
 
 # Range correction based on sound speed
 # calculate a new range matrix - this should use a variable sound speed as the probe is moving. range needs to be adjusted per ping
@@ -223,7 +233,7 @@ power[1000:1005,1:10]
     y_adj <- y*(c/c_new)^2 # from Demer et al (2015) recommendation
     reverb_coeff <- 10*log10(c_new*t*y_adj/2)  
     reverb_coeff <- matrix(reverb_coeff, nrow = nrow(power), ncol = ncol(power), byrow = TRUE)
-
+    reverb_coeff[1000:1005,1:10]
 #Sv_new <- power+20*log10(nano.range_new) + 2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
 
 # COMPUTATIONALLLY INTENSIVE - not working might need to rework into invdividual steps
