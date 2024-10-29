@@ -183,23 +183,6 @@ Sample_count <- as.numeric(nano.meta$Sample_count)[1]
 nano.range <- sapply(1:dim(nano.sv)[2], function(i) Range_start + ((Range_stop-Range_start)/Sample_count)*(i+0.5))    
 nano.range <- matrix(nano.range, nrow=dim(nano.sv)[1], ncol = dim(nano.sv)[2], byrow = T) # creates the full range matrix
 
-        #  TVG Range Correction - Need to figure out how to apply this to range measurements
-        #  Need to include a TVG range correction
-        #  According to Echoview half a pulse length is appropriate, confirm with Steve
-         #  Estimate correction offset value
-        
-          Fs <- 64000 # Hz, digitization rate, or the frequency at which the analog-to-digital converter is sampling
-          samperf <-  1/Fs # microseconds between samples
-          TVG_corr <- (t/samperf)*(1/2)*Range_stop/Sample_count # meters, pulse length divided by samples, divided by two, converted to meters
-          TVGr_corr <- TVG_corr # meters per sample
-          
-          # or
-          
-          #(c*t)/4 # in m which would correctly translate to
-          TVG_corr <- c_new*t/4   # in m --- substract this from the range matrix
-          
-          
-
 # calculate time matrix - this uses a constant sounds speed
 # calculates the time for the signal to return based on the pulse length and nominal sound speed
 time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) 
@@ -216,6 +199,25 @@ nano.range_new <- apply(time.mat, 2, function(i) i*c_new/2-c_new*t/4)   #new ran
     nano.range_new[1000:1005,1:5] # subset
     summary(nano.range_new[,4411]) # includes NAs for pings without CTD measurements
 
+#  TVG Range Correction - Need to figure out how to apply this to range measurements
+#  Need to include a TVG range correction
+#  According to Echoview half a pulse length is appropriate, confirm with Steve
+#  Estimate correction offset valuen - two ways to do this
+    
+    # 1) estimate half a pulse length
+    #Fs <- 64000 # Hz, digitization rate, or the frequency at which the analog-to-digital converter is sampling
+    #samperf <-  1/Fs # microseconds between samples
+    #TVG_corr <- (t/samperf)*(1/2)*Range_stop/Sample_count # meters, pulse length divided by samples, divided by two, converted to meters
+    #TVGr_corr <- TVG_corr # meters per sample
+    
+    # or
+    
+    # 2) use the standard method - #(c*t)/4 # in m which would correctly translate to
+    TVG_corr <- c_new*t/4   # in m --- substract this from the range matrix
+    
+# subtract TVG range correction from each column in range matrix
+nano.range_new <- sweep(nano.range_new, 1, TVG_corr, "-")
+summary(nano.range_new[,4411]) # includes NAs for pings without CTD measurements
 
 # calculate nominal power matrix - isolates the power terms, removing any variables that include impacted by sounds speed. 
 power<- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10((c*t*y)/2) 
@@ -232,7 +234,7 @@ power[1000:1005,1:10]
     # first calculate the adjusted beam angle
     y_adj <- y*(c/c_new)^2 # from Demer et al (2015) recommendation
     reverb_coeff <- 10*log10(c_new*t*y_adj/2)  
-    reverb_coeff <- matrix(reverb_coeff, nrow = nrow(power), ncol = ncol(power), byrow = TRUE)
+    reverb_coeff <- matrix(reverb_coeff, nrow = nrow(power), ncol = ncol(power), byrow = FALSE)
     reverb_coeff[1000:1005,1:10]
 #Sv_new <- power+20*log10(nano.range_new) + 2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
 
@@ -259,14 +261,33 @@ Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm
 plot(Sv_new_mean[1,700:1300], type="l")
 lines(Sv_old_mean[1,700:1300], type = "l", col = "red")
 
+#plot pings
 
-# adjust Sv using new sound speed and absorption coefficients
-# DEFAULT SOUND SPEED = 1450.5 m/s and DEFAULT ABS COEFF. = 0.0230
+sv_new.ping <- data.frame(Sv_new[1200,], nano.range_new[1200,])
+colnames(sv_new.ping) <- c("Sv", "range")
+sv_old.ping <- data.frame(nano.sv[1200,], nano.range[1200,])
+colnames(sv_old.ping) <- c("Sv", "range")
+
+sv_new.ping %>% 
+  ggplot(aes(x=range, y=Sv)) + geom_line(color="black") + 
+  geom_line(data=sv_old.ping, aes(x=range, y=Sv), color="red", inherit.aes = F) + 
+  xlab("Range [m]") + ylab("Sv [dB]") + 
+  theme_bw()
+
+# ECHOMETRIC - sample entropy
+
+# Load the package
+library(pracma)
+
+m <- 2  # Embedding dimension
+r <- 0.2 * sd(sv_new.ping$Sv) # Tolerance level (20% of standard deviation)
+
+sample_entropy(sv_new.ping$Sv, m, r)
+# True depth averaged Sv and echometric calculations
+
+#
 
 
-  # for each depth, calculate the mean sound speed, temperature, and salinity for the 0-50 below that depth interval. 
-
-# publish dataset with profile name
 
 write.csv(------, "ATKA24_01_AZFP_sv_corr.csv")
 
