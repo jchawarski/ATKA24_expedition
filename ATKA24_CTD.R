@@ -251,9 +251,9 @@ Sv_offset <- 1.2 # dB --- this value is for a 300 microsecond pulse length at 20
 #add the Sv offset to the entire Sv matrix prior to calculating means
 Sv_new <- apply(Sv_new, 2, function(i) i+Sv_offset) # not tested
 
+#### END OF ADJUSTMENTS ####
 
-## plot data
-
+# Check data
 # compute mean values 
 Sv_new_mean <- t(data.frame(apply(Sv_new, 1, function(i) log10(mean(10^i, na.rm=T)))))
 Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm=T)))))
@@ -274,6 +274,51 @@ sv_new.ping %>%
   xlab("Range [m]") + ylab("Sv [dB]") + 
   theme_bw()
 
+
+
+
+# TRIM datset to include only the downcast
+
+stn1 <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_01_CTD1.xlsx", sheet=3, skip=1)
+
+stn1$Depth_date <- format(as.Date(stn1$Time, format = "%Y-%m-%d"), "%m/%d/%Y" )
+stn1$Depth_time <- format(stn1$Time, format = "%H:%M:%S")
+stn1$datetime <- as.POSIXct(stn1$Time,format="%Y-%m-%d %H:%M:%S", tz="UTC")
+stn1$interval <- period_to_seconds(lubridate::seconds(stn1$datetime))
+
+stn.sum <- 
+  stn1 %>% group_by(round(interval)) %>%           summarise(depth = mean(Depth),
+                                                   sound_speed = mean(`Speed of sound`),
+                                                   conductivity = mean(Conductivity),
+                                                   salinity = mean(Salinity),
+                                                   temperature = mean(Temperature),
+                                                   turbidity = mean(Turbidity),
+                                                   pressure = mean(Pressure))
+
+
+# bind the nano metadata back with the Sv file.
+nano.sv_corrected <- cbind(nano.meta, Sv_new)
+
+#filter the echogram by the intervals of the trimmed downcast
+nano.sv_corrected <- nano.sv_corrected %>% filter(interval %in% stn.sum$interval)
+
+nano.range_corrected <- cbind(nano.meta,nano.range_new)
+
+nano.range_corrected <- nano.range_corrected %>% filter(interval %in% stn.sum$interval)
+
+nano.range_corrected[,9:ncol(nano.range_corrected)]
+
+# calculate mean range for each depth bin
+
+nano.range_mean <- apply(nano.range_corrected[,10:ncol(nano.range_corrected)], 2, mean, na.rm=T)
+
+# DONE with adjustments
+
+
+
+## plot data
+
+
 # ECHOMETRIC - sample entropy
 
 # Load the package
@@ -284,9 +329,52 @@ r <- 0.2 * sd(sv_new.ping$Sv) # Tolerance level (20% of standard deviation)
 
 sample_entropy(sv_new.ping$Sv, m, r)
 # True depth averaged Sv and echometric calculations
+# one idea is to create a range mean column
 
-#
 
+
+# or try ggplot
+# Reshape data for ggplot
+time_rep <- rep(nano.meta$datetime, each = ncol(nano.range_new))
+range_rep <- as.vector(nano.range_mean)
+backscatter_rep <- as.vector(Sv_new)
+df <- data.frame(Time = time_rep, Range = range_rep, Backscatter = backscatter_rep)
+
+df_clean <- na.omit(df)
+
+
+
+# Plot
+ggplot(df_clean, aes(x = Time, y = Range, fill = Backscatter)) +
+  geom_tile() +
+  scale_fill_viridis_c() +
+  labs(title = "Backscatter Plot", x = "Time", y = "Range") +
+  theme_minimal()
+
+
+# requires averaging the range values for each column... 
+# need to investigate range standard deviation
+
+nano.range_sum <- 
+  data.frame(
+  Mean = apply(nano.range_new, 2, mean, na.rm=T),
+  Min = apply(nano.range_new, 2, min, na.rm=T),
+  Max = apply(nano.range_new, 2, max, na.rm=T),
+  SD = apply(nano.range_new, 2, sd, na.rm=)
+)
+
+nano.range_sum$index <- c(1:nrow(nano.range_sum))
+
+# Plot using ggplot2
+
+nano.range_sum %>%
+  ggplot(aes(y=Max-Min, x=index)) + geom_line()
+
+filled.contour(x = time_values, 
+               y = 1:nrow(range_matrix),  # This is row index since y-axis has to match rows
+               z = backscatter_matrix, 
+               color.palette = viridis::viridis,  # Use perceptually uniform colors
+               plot.title = title(main = "Backscatter Plot", xlab = "Time", ylab = "Range Index"))
 
 
 write.csv(------, "ATKA24_01_AZFP_sv_corr.csv")
