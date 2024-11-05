@@ -294,23 +294,224 @@ stn.sum <-
                                                    temperature = mean(Temperature),
                                                    turbidity = mean(Turbidity),
                                                    pressure = mean(Pressure))
-
+colnames(stn.sum)[1] <- "interval"
 
 # bind the nano metadata back with the Sv file.
 nano.sv_corrected <- cbind(nano.meta, Sv_new)
+#double-check
+nano.sv_corrected[1:10,1:10]
+
 
 #filter the echogram by the intervals of the trimmed downcast
 nano.sv_corrected <- nano.sv_corrected %>% filter(interval %in% stn.sum$interval)
 
+
+
+nano.sv_corrected <- cbind(stn.sum$depth, nano.sv_corrected) 
+# rename the depth column
+colnames(nano.sv_corrected)[1] <- "depth"
+
+
+# filter range measurements and compute mean ranges for whole dataset
 nano.range_corrected <- cbind(nano.meta,nano.range_new)
+nano.range_corrected <- nano.range_corrected %>% filter(interval %in% stn.sum$interval) # filters range matrix data to downcast only
+#double check
+nano.range_corrected[1:10,1:10]
+# select only the range values corresponding to the trimmed dataset
+nano.range_corrected <- nano.range_corrected[,10:ncol(nano.range_corrected)]
 
-nano.range_corrected <- nano.range_corrected %>% filter(interval %in% stn.sum$interval)
+nano.range_mean <- apply(nano.range_corrected, 2, mean, na.rm=T)    # computes mean range values among all pings
 
-nano.range_corrected[,9:ncol(nano.range_corrected)]
+# add the range values as temporary column names for each Sv value
+colnames(nano.sv_corrected)[11:ncol(nano.sv_corrected)] <- nano.range_mean
+#double-check
+nano.sv_corrected[1:10,1:10]
+
+# compute the average interval in depth measurements
+
+intervals <- diff(nano.sv_corrected$depth)
+summary(intervals)
+
+d_breaks <- seq(0, max(nano.sv_corrected$depth),0.5)
+
+# practice code ##############
+stn.sum %>%
+mutate(d_interval = cut(depth,
+                        breaks-0.5, 
+                        include.lowest = TRUE, 
+                        right = FALSE))
+
+
+
+
+r_breaks <- seq(0, max(nano.range_mean),0.5)
+d_breaks <- seq(0, max(nano.sv_corrected$depth),0.5)
+
+# define depth intervals 
+interval_width <- 0.5
+max_depth <- max(nano.sv_corrected$depth)
+max_depth_rounded <- ceiling(max_depth / interval_width) * interval_width
+d_breaks <- seq(0, max_depth_rounded, by = interval_width)
+
+
+interval_width <- 0.5
+max_range <- max(nano.range_mean)
+max_range_rounded <- ceiling(max_range / interval_width) * interval_width
+r_breaks <- seq(0, max_range_rounded, by = interval_width)
+
+
+
+# Create breaks from 0 to rounded max depth
+d_breaks <- seq(0, max_depth_rounded, by = interval_width)
+
+
+r_labels <- paste(head(r_breaks, -1), tail(r_breaks, -1), sep = "-")
+d_labels <- paste(head(d_breaks, -1), tail(d_breaks, -1), sep = "-")
+d_labels <-   c(paste(breaks[-length(d_breaks)], d_breaks[-1], sep = "-"),paste(max)
+            paste(head(breaks, -1), tail(breaks, -1), sep = "-")
+
+### incomplete~!
+stn1.profile <- nano.sv_corrected %>% 
+                reshape2::melt(., by= colnames(nano.sv_corrected)[1:10], 
+                               measure.vars = colnames(nano.sv_corrected)[11:ncol(nano.sv_corrected)], # Columns to melt
+                               variable.name = "Variable", 
+                               value.name = "Value") %>%
+  
+              # assign depth interval
+  
+                                mutate(r_interval = cut(as.numeric(as.character(Variable)),
+                                r_breaks, 
+                                #labels = r_breaks,
+                                include.lowest = TRUE, 
+                                right = FALSE)) %>%
+              
+              # assign range interval
+  
+                                mutate(d_interval = cut(depth,
+                                d_breaks, 
+                                #labels = d_breaks,
+                                include.lowest = TRUE, 
+                                right = FALSE)) %>%
+              
+              # grouping by depth range combo
+              
+                                group_by(d_interval, r_interval) %>% 
+                                
+              # compute mean value of Sv in each 
+              # depth-range bin
+              # carrying over the min time and interval for each bin
+  
+                                summarize(Sv_mean = log10(mean(10^Value, na.rm=T)),
+                                          datetime = min(datetime),
+                                          Interval = min(interval)) %>%
+              
+              # extract min depth from interval string
+  
+                                mutate(depth = min(as.numeric(unlist(regmatches(d_interval, gregexpr("[0-9.]+", d_interval)))))) %>%
+              
+              # extract min range from interval string
+  
+                                mutate(range = sapply(r_interval, function(r_interval) {
+                                  if (!is.na(r_interval)) {
+                                    # Extract numbers and take the minimum
+                                    numbers <- as.numeric(unlist(regmatches(r_interval, gregexpr("-?[0-9]+\\.?[0-9]*", r_interval))))
+                                    min(numbers, na.rm = TRUE)  # Return the minimum value
+                                  } else {
+                                    NA  # Return NA for NA labels
+                                  }
+                                })) %>%
+  
+              # compute true depth by combining depth and range
+  
+                                mutate(depth_true = depth + range)
+
+
+
+
+# Plot results
+require(showtext)
+font_add_google("Barlow") # add ASL font type
+showtext_auto() # gives showtext permission to overwrite ggplot default
+
+Sv_label <- expression(paste("S"["v"]," [dB re 1 m" ^-1,"]"))
+
+# FULL ECHOGRAM
+
+      p1 <-
+        
+      stn1.profile %>%
+      ggplot(aes(x = datetime, y = depth_true, fill = Sv_mean)) +
+        geom_tile() +
+        #scale_fill_viridis_c() +
+        scale_fill_viridis_b(
+          option = "D",              # Use a specific viridis palette
+          direction = 1,            # Reverse colors if desired
+          begin = 0.0, end = 1,        # Full palette range
+          breaks = seq(-100, -50, by = 5),
+          guide = guide_colorbar(    # Customize the color bar in the legend
+            frame.colour = "black",  # Black border around the color bar
+            frame.linewidth = 0.5,    # Thickness of the border
+            barwidth = unit(0.4, "cm"),
+            barheight = unit(5, "cm"), 
+            ticks.colour = "black",  # Black ticks
+            ticks.linewidth = 0.5 ,  
+            ticks= FALSE,
+            ticks.length = unit(1, "cm"),
+            title.position = "right",
+            title.theme = element_text(angle = 270, hjust = 0.5, vjust = -1.5) 
+        )) + 
+        labs(fill = Sv_label) + 
+        scale_y_reverse(expand = c(0,0)) + 
+        scale_x_datetime(date_labels = "%H:%M:%S", date_breaks = "1 min", expand = c(0,0)) + 
+        labs(title = "Profile Echogram", x = "Time", y = "Depth [m]") +
+        theme_bw()  + 
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))+  # Rotate text 45 degrees
+        theme(plot.margin = unit(c(0.5, 0, 0, 0.5), "cm"), 
+              text = element_text("Barlow", size=30))  
+      
+      p2 <-
+       
+      stn1.profile %>%
+        group_by(depth_true) %>%
+        filter(range > 0.5) %>%
+        summarise(sv = log10(mean(10^Sv_mean, na.rm=T))) %>%
+        ggplot(aes(x = depth_true, y = sv)) +
+        scale_y_continuous() + 
+          geom_line() + 
+          coord_flip()+ scale_x_reverse(expand = c(0,0)) +
+        labs(title = "MVBS Plot", y = Sv_label, x = "")+
+        theme_bw()+ 
+        theme(plot.margin = unit(c(0.5, 0.5, 0.5, 0), "cm"), 
+              text = element_text("Barlow", size=30))
+         
+  
+require(cowplot) 
+
+final.plot <- 
+      
+plot_grid(p1,p2, align="hv", rel_widths = c(3:2), vjust=0.5)
+
+# not quite there yet
+ggsave2("ATKA24_01_AZFP_sv_corr.png", 
+       plot=final.plot, 
+       device = "png",
+       width = 10,
+       height = 4, 
+       units = "in",
+       dpi=150)
+
+
+nano.range_mean <- apply(nano.range_corrected, 2, mean, na.rm=T)
+nano.range_mean <- matrix(nano.range_mean, nrow = nrow(nano.range_new), ncol = ncol(nano.range_new), byrow = T)
+
+
+
+nano.depth_correction <- 
 
 # calculate mean range for each depth bin
 
-nano.range_mean <- apply(nano.range_corrected[,10:ncol(nano.range_corrected)], 2, mean, na.rm=T)
+sv.ping_mean <- apply(nano.range_corrected[,10:ncol(nano.range_corrected)], 2, mean, na.rm=T)
+
 
 # DONE with adjustments
 
