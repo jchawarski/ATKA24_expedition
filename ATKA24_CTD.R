@@ -220,7 +220,7 @@ nano.range_new <- sweep(nano.range_new, 1, TVG_corr, "-")
 summary(nano.range_new[,4411]) # includes NAs for pings without CTD measurements
 
 # calculate nominal power matrix - isolates the power terms, removing any variables that include impacted by sounds speed. 
-power<- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10((c*t*y)/2) 
+power <- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10((c*t*y)/2) 
 
 power[1000:1005,1:10]
 
@@ -235,6 +235,7 @@ power[1000:1005,1:10]
     y_adj <- y*(c/c_new)^2 # from Demer et al (2015) recommendation
     reverb_coeff <- 10*log10(c_new*t*y_adj/2)  
     reverb_coeff <- matrix(reverb_coeff, nrow = nrow(power), ncol = ncol(power), byrow = FALSE)
+    #check data
     reverb_coeff[1000:1005,1:10]
 #Sv_new <- power+20*log10(nano.range_new) + 2*coeff_abs_new*nano.range_new  # -10*log10(c_new*t*equi_beam_angle/2) 
 
@@ -243,41 +244,40 @@ power[1000:1005,1:10]
 
 Sv_new <- power + spread_loss + abs_loss - reverb_coeff
 
-
 # add a calibration offset to all Sv values to account for system bandwidth effects for volume backscatter
 # see section 11.5 in AZFP manual, table 3. 
 Sv_offset <- 1.2 # dB --- this value is for a 300 microsecond pulse length at 200 kHz
 
 #add the Sv offset to the entire Sv matrix prior to calculating means
-Sv_new <- apply(Sv_new, 2, function(i) i+Sv_offset) # not tested
+Sv_new <- apply(Sv_new, 2, function(i) i+Sv_offset) # works
 
 #### END OF ADJUSTMENTS ####
 
 # Check data
-# compute mean values 
-Sv_new_mean <- t(data.frame(apply(Sv_new, 1, function(i) log10(mean(10^i, na.rm=T)))))
-Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm=T)))))
+    # compute mean values 
+    Sv_new_mean <- t(data.frame(apply(Sv_new, 1, function(i) log10(mean(10^i, na.rm=T)))))
+    Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm=T)))))
+    
+    plot(Sv_new_mean[1,700:1300], type="l")
+    lines(Sv_old_mean[1,700:1300], type = "l", col = "red")
 
-plot(Sv_new_mean[1,700:1300], type="l")
-lines(Sv_old_mean[1,700:1300], type = "l", col = "red")
+#plot individual pings to compare corrected and uncorrected data
 
-#plot pings
-
-sv_new.ping <- data.frame(Sv_new[1200,], nano.range_new[1200,])
-colnames(sv_new.ping) <- c("Sv", "range")
-sv_old.ping <- data.frame(nano.sv[1200,], nano.range[1200,])
-colnames(sv_old.ping) <- c("Sv", "range")
-
-sv_new.ping %>% 
-  ggplot(aes(x=range, y=Sv)) + geom_line(color="black") + 
-  geom_line(data=sv_old.ping, aes(x=range, y=Sv), color="red", inherit.aes = F) + 
-  xlab("Range [m]") + ylab("Sv [dB]") + 
-  theme_bw()
-
+    # select individual ping
+    sv_new.ping <- data.frame(Sv_new[1200,], nano.range_new[1200,])
+    colnames(sv_new.ping) <- c("Sv", "range")
+    sv_old.ping <- data.frame(nano.sv[1200,], nano.range[1200,])
+    colnames(sv_old.ping) <- c("Sv", "range")
+    
+    # plot Sv vs Range
+    sv_new.ping %>% 
+      ggplot(aes(x=range, y=Sv)) + geom_line(color="black") + 
+      geom_line(data=sv_old.ping, aes(x=range, y=Sv), color="red", inherit.aes = F) + 
+      xlab("Range [m]") + ylab("Sv [dB]") + 
+      theme_bw()
 
 
-
-# TRIM datset to include only the downcast
+# TRIM dataset to include only the downcast
 
 stn1 <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_01_CTD1.xlsx", sheet=3, skip=1)
 
@@ -305,12 +305,9 @@ nano.sv_corrected[1:10,1:10]
 #filter the echogram by the intervals of the trimmed downcast
 nano.sv_corrected <- nano.sv_corrected %>% filter(interval %in% stn.sum$interval)
 
-
-
 nano.sv_corrected <- cbind(stn.sum$depth, nano.sv_corrected) 
 # rename the depth column
 colnames(nano.sv_corrected)[1] <- "depth"
-
 
 # filter range measurements and compute mean ranges for whole dataset
 nano.range_corrected <- cbind(nano.meta,nano.range_new)
@@ -467,7 +464,7 @@ Sv_label <- expression(paste("S"["v"]," [dB re 1 m" ^-1,"]"))
         theme_bw()  + 
         theme(axis.text.x = element_text(angle = 45, hjust = 1))+  # Rotate text 45 degrees
         theme(plot.margin = unit(c(0.5, 0, 0, 0.5), "cm"), 
-              text = element_text("Barlow", size=30))  
+              text = element_text("Barlow"))  
       
       p2 <-
        
@@ -482,7 +479,7 @@ Sv_label <- expression(paste("S"["v"]," [dB re 1 m" ^-1,"]"))
         labs(title = "MVBS Plot", y = Sv_label, x = "")+
         theme_bw()+ 
         theme(plot.margin = unit(c(0.5, 0.5, 0.5, 0), "cm"), 
-              text = element_text("Barlow", size=30))
+              text = element_text("Barlow"))
          
   
 require(cowplot) 
@@ -491,7 +488,7 @@ final.plot <-
       
 plot_grid(p1,p2, align="hv", rel_widths = c(3:2), vjust=0.5)
 
-# not quite there yet
+# not quite there yet - problems with text size on the png
 ggsave2("ATKA24_01_AZFP_sv_corr.png", 
        plot=final.plot, 
        device = "png",
