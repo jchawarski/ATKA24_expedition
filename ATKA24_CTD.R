@@ -37,6 +37,9 @@ stn1 <- stn1[12:15]
 
 write.csv(stn1, "ATKA24_01_CTD3_heave.depth.csv")
 
+
+
+
 #### AZFP DATA PROCESSING PIPELINE ####
 
 # read AZFP data as sv.csv exported from AZFP link
@@ -82,7 +85,7 @@ stn.sum$datetime <- as.POSIXct(stn.sum$interval ,origin = "1970-01-01",tz = "UTC
   # calculate mean temperature, salinity, pressure to a range of 50 m below probe
   # define function to calculate rolling mean for a given window size
   # accurate sounds speed adjustments 
-  rolling_mean <- function(x, depth, window = 50) 
+  rolling_mean <- function(x, depth, window = 50)    
     {
     sapply(1:length(x), function(i) {
       # Define the range for averaging (depth[i] to depth[i] + window)
@@ -105,7 +108,7 @@ stn.sum$salinity_50m_mean <- rolling_mean(stn.sum$salinity, stn.sum$depth)
 stn.sum$soundspeed_50m_mean <- rolling_mean(stn.sum$sound_speed, stn.sum$depth)
 stn.sum$pressure_50m_mean <- rolling_mean(stn.sum$pressure, stn.sum$depth)
 
-# 5) # Assign constants for calculating a rolling absorption coefficient
+# 5) # Assign nominal constants for calculating a rolling absorption coefficient
       # 200 kHz quad transducer
       c <-1450.5     # original sound speed
       coeff_abs <- 0.0230 # original coefficient of absorption
@@ -314,6 +317,7 @@ nano.range_corrected <- cbind(nano.meta,nano.range_new)
 nano.range_corrected <- nano.range_corrected %>% filter(interval %in% stn.sum$interval) # filters range matrix data to downcast only
 #double check
 nano.range_corrected[1:10,1:10]
+
 # select only the range values corresponding to the trimmed dataset
 nano.range_corrected <- nano.range_corrected[,10:ncol(nano.range_corrected)]
 
@@ -329,21 +333,6 @@ nano.sv_corrected[1:10,1:10]
 intervals <- diff(nano.sv_corrected$depth)
 summary(intervals)
 
-d_breaks <- seq(0, max(nano.sv_corrected$depth),0.5)
-
-# practice code ##############
-stn.sum %>%
-mutate(d_interval = cut(depth,
-                        breaks-0.5, 
-                        include.lowest = TRUE, 
-                        right = FALSE))
-
-
-
-
-r_breaks <- seq(0, max(nano.range_mean),0.5)
-d_breaks <- seq(0, max(nano.sv_corrected$depth),0.5)
-
 # define depth intervals 
 interval_width <- 0.5
 max_depth <- max(nano.sv_corrected$depth)
@@ -357,17 +346,23 @@ max_range_rounded <- ceiling(max_range / interval_width) * interval_width
 r_breaks <- seq(0, max_range_rounded, by = interval_width)
 
 
+### prepare an averaged profile - currently with min, max values. 
 
-# Create breaks from 0 to rounded max depth
-d_breaks <- seq(0, max_depth_rounded, by = interval_width)
+# ECHOMETRIC - sample entropy
+
+# Load the package
+library(pracma)
 
 
-r_labels <- paste(head(r_breaks, -1), tail(r_breaks, -1), sep = "-")
-d_labels <- paste(head(d_breaks, -1), tail(d_breaks, -1), sep = "-")
-d_labels <-   c(paste(breaks[-length(d_breaks)], d_breaks[-1], sep = "-"),paste(max)
-            paste(head(breaks, -1), tail(breaks, -1), sep = "-")
+r <- 0.2 * sd(sv_new.ping$Sv) # Tolerance level (20% of standard deviation)
 
-### incomplete~!
+sample_entropy(Value, edim=2, r=0.2*sd(Value))
+# True depth averaged Sv and echometric calculations
+# one idea is to create a range mean column
+
+
+
+
 stn1.profile <- nano.sv_corrected %>% 
                 reshape2::melt(., by= colnames(nano.sv_corrected)[1:10], 
                                measure.vars = colnames(nano.sv_corrected)[11:ncol(nano.sv_corrected)], # Columns to melt
@@ -399,6 +394,8 @@ stn1.profile <- nano.sv_corrected %>%
               # carrying over the min time and interval for each bin
   
                                 summarize(Sv_mean = log10(mean(10^Value, na.rm=T)),
+                                          Sv_min = min(Value, na.rm=T),
+                                          Sv_max = max(Value, na.rm=T),
                                           datetime = min(datetime),
                                           Interval = min(interval)) %>%
               
@@ -471,10 +468,15 @@ Sv_label <- expression(paste("S"["v"]," [dB re 1 m" ^-1,"]"))
       stn1.profile %>%
         group_by(depth_true) %>%
         filter(range > 0.5) %>%
-        summarise(sv = log10(mean(10^Sv_mean, na.rm=T))) %>%
+        summarise(sv = log10(mean(10^Sv_mean, na.rm=T)),
+                  min = min(Sv_min, na.rm = T),
+                  max = max(Sv_max, na.rm = T)) %>%
+                  #entropy = sample_entropy(10^(Sv_mean/10), edim=2, r=0.2*sd(10^(Sv_mean/10)))) %>%
         ggplot(aes(x = depth_true, y = sv)) +
         scale_y_continuous() + 
           geom_line() + 
+        #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+        #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
           coord_flip()+ scale_x_reverse(expand = c(0,0)) +
         labs(title = "MVBS Plot", y = Sv_label, x = "")+
         theme_bw()+ 
@@ -488,6 +490,10 @@ final.plot <-
       
 plot_grid(p1,p2, align="hv", rel_widths = c(3:2), vjust=0.5)
 
+
+
+### PUBLISH THE RESULTS ###
+
 # not quite there yet - problems with text size on the png
 ggsave2("ATKA24_01_AZFP_sv_corr.png", 
        plot=final.plot, 
@@ -497,82 +503,6 @@ ggsave2("ATKA24_01_AZFP_sv_corr.png",
        units = "in",
        dpi=150)
 
-
-nano.range_mean <- apply(nano.range_corrected, 2, mean, na.rm=T)
-nano.range_mean <- matrix(nano.range_mean, nrow = nrow(nano.range_new), ncol = ncol(nano.range_new), byrow = T)
-
-
-
-nano.depth_correction <- 
-
-# calculate mean range for each depth bin
-
-sv.ping_mean <- apply(nano.range_corrected[,10:ncol(nano.range_corrected)], 2, mean, na.rm=T)
-
-
-# DONE with adjustments
-
-
-
-## plot data
-
-
-# ECHOMETRIC - sample entropy
-
-# Load the package
-library(pracma)
-
-m <- 2  # Embedding dimension
-r <- 0.2 * sd(sv_new.ping$Sv) # Tolerance level (20% of standard deviation)
-
-sample_entropy(sv_new.ping$Sv, m, r)
-# True depth averaged Sv and echometric calculations
-# one idea is to create a range mean column
-
-
-
-# or try ggplot
-# Reshape data for ggplot
-time_rep <- rep(nano.meta$datetime, each = ncol(nano.range_new))
-range_rep <- as.vector(nano.range_mean)
-backscatter_rep <- as.vector(Sv_new)
-df <- data.frame(Time = time_rep, Range = range_rep, Backscatter = backscatter_rep)
-
-df_clean <- na.omit(df)
-
-
-
-# Plot
-ggplot(df_clean, aes(x = Time, y = Range, fill = Backscatter)) +
-  geom_tile() +
-  scale_fill_viridis_c() +
-  labs(title = "Backscatter Plot", x = "Time", y = "Range") +
-  theme_minimal()
-
-
-# requires averaging the range values for each column... 
-# need to investigate range standard deviation
-
-nano.range_sum <- 
-  data.frame(
-  Mean = apply(nano.range_new, 2, mean, na.rm=T),
-  Min = apply(nano.range_new, 2, min, na.rm=T),
-  Max = apply(nano.range_new, 2, max, na.rm=T),
-  SD = apply(nano.range_new, 2, sd, na.rm=)
-)
-
-nano.range_sum$index <- c(1:nrow(nano.range_sum))
-
-# Plot using ggplot2
-
-nano.range_sum %>%
-  ggplot(aes(y=Max-Min, x=index)) + geom_line()
-
-filled.contour(x = time_values, 
-               y = 1:nrow(range_matrix),  # This is row index since y-axis has to match rows
-               z = backscatter_matrix, 
-               color.palette = viridis::viridis,  # Use perceptually uniform colors
-               plot.title = title(main = "Backscatter Plot", xlab = "Time", ylab = "Range Index"))
 
 
 write.csv(------, "ATKA24_01_AZFP_sv_corr.csv")
@@ -588,22 +518,6 @@ ggsave("ATKA24_01_AZFP_sv_corr.tiff", plot=p1, device = "tiff")
 azfp.final$Station <- "RG19_51"
 write.csv(azfp.final, "Clean Data/RG19_51_azfp-CTD_correctedSv.csv")
 
-
-
-# 3) Standardize the time format, and convert to unique interval
-
-azfp.meta$Interval <- period_to_seconds(lubridate::seconds(azfp.meta$datetime))
-CTD$Interval <- period_to_seconds(lubridate::seconds(CTD$datetime))
-
-# CTD was collected at
-
-
-azfp.ctd <- azfp.meta %>% 
-  left_join(., CTD, by="Interval") %>%     # join ctd and azfp data.frames by matching time cases
-  mutate_all(., as.numeric) %>%           # convert all values to numeric
-  group_by(Ping_index) %>%                # there are multiple values per ping so they need to be average to azfp sampling resolution
-  summarise_all(., mean) %>%               # calculate mean value for each parameter per ping
-  na_interpolation(.)
 
 
 
