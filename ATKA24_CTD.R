@@ -23,9 +23,7 @@ require(readxl)
 setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland/ATKA24 DATA")
 # single file reading and stripping of variables
 
-
 #### Create a heave file from CTD - for use in Echoview only ####
-
 
 stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_01_CTD3_full.xlsx", sheet=4, skip=1)
 
@@ -36,8 +34,6 @@ stn.full$Depth_status <- 3
 stn.full <- stn.full[12:15]
 
 write.csv(stn.full, "ATKA24_01_CTD3_heave.depth.csv")
-
-
 
 
 #### AZFP DATA PROCESSING PIPELINE ####
