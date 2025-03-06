@@ -490,7 +490,7 @@ plot_grid(p1,p2, align="hv", rel_widths = c(3:2), vjust=0.5)
 
 
 ### PUBLISH THE RESULTS ###
-ggsave2(filename_img, 
+ggsave(filename_img, 
        plot=final.plot, 
        device = "png",
        width = 738,
@@ -503,12 +503,152 @@ write.csv(stn.profile, filename_data)
 
 
 
+##### PART 2 ###
+# depth alignment of light and turbidity and fluorescence data
+require(tidyverse)
+require(lubridate)
+require(readxl)
+clw <- read.csv("Alec-CLW/converted/20240812_1815_ACLW-USB_0271_171810_A.csv", skip = 30 )
+
+colnames(clw)[1:6] <- c("datetime", "temp", "chl-flu", "chl-a", "turb-ftu", "batt-volt")
+
+clw$datetime <- as.POSIXct(clw$datetime,format="%Y/%m/%d %H:%M:%S", tz="UTC")
+clw$interval <- period_to_seconds(lubridate::seconds(clw$datetime))         # creates a numeric interval variable 
+
+sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_10_CTD.xlsx"))
+        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_10_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
+
+stn.trim$datetime <- as.POSIXct(stn.trim$Time,format="%Y-%m-%d %H:%M:%S", tz="UTC")
+stn.trim$interval <- period_to_seconds(lubridate::seconds(stn.trim$datetime))         # creates a numeric interval variable 
+
+
+# calculate 1 second averages for the CTD data and round the interval to nearest second
+stn.sum <- 
+  stn.trim %>% group_by(round(interval)) %>% summarise(depth = mean(Depth),
+                                                       sound_speed = mean(`Speed of sound`),
+                                                       conductivity = mean(Conductivity),
+                                                       salinity = mean(Salinity),
+                                                       temperature = mean(Temperature),
+                                                       turbidity = mean(Turbidity),
+                                                       pressure = mean(Pressure))
+colnames(stn.sum)[1] <- "interval"
+stn.sum$datetime <- as.POSIXct(stn.sum$interval ,origin = "1970-01-01",tz = "UTC")
+
+# adjust interval for potential lag
+clw$interval <- clw$interval-1
+
+# bind the two datasets together
+clw.ctd <- clw %>% 
+  right_join(., stn.sum, by="interval")
+
+head(clw.ctd)
+
+# plot to check alignment of temperature profiles
+clw.ctd %>%  
+  ggplot(aes(x=depth, y=temperature) ) +
+  geom_line(color="blue") + 
+  geom_line(aes(x=depth, y=temp), color="red", inherit.aes = F) + 
+  coord_flip() + scale_x_reverse() + theme_bw()
+
+clw.ctd %>%
+  ggplot(aes(x=depth, y=`chl-a`)) +
+  geom_line(color="darkgreen") + 
+  geom_line(aes(x=depth, y=`turb-ftu`), color="purple", inherit.aes = F) + 
+  ylab("chl-a (μg/L) ") + xlab("depth (m)") + 
+  coord_flip() + scale_x_reverse() + theme_bw()
+
+
+# add light data
+
+light <- read.csv("TDR-MK9/ATKA24_download081524-Archive.csv")
+
+light$datetime <- as.POSIXct(light$Time,format="%m/%d/%Y %H:%M:%S", tz="UTC")
+light$interval <- period_to_seconds(lubridate::seconds(light$datetime))         # creates a numeric interval variable 
+
+# difference between peak light level and first interval in ctd file
+light$interval <- light$interval+26
+
+#light %>% filter(interval %in% c(1723570524:1723571382)) %>%
+#  ggplot(aes(interval, Light.Level)) + geom_point()
+
+plus.ctd <- light %>% 
+  right_join(., clw.ctd, by="interval")
+
+plus.ctd <- plus.ctd %>% select(datetime.x, interval, depth, Light.Level, `chl-flu`, `chl-a`,`turb-ftu`, conductivity, salinity, temperature, turbidity, pressure)
+colnames(plus.ctd)[c(1,4,5,6,7)] <- c("datetime", "relative.light", "CLW_chl_flu", "CLW_chl_a", "CLW_turb")
+
+
+plus.ctd %>%
+  ggplot(aes(depth, y=relative.light)) + 
+  geom_line(color="black") + 
+  #geom_line(aes(x=depth, y=temperature), color="blue", inherit.aes = F) + 
+  # geom_line(aes(x=depth, y=Temperature), color="red", inherit.aes = F) + 
+  coord_flip() + scale_x_reverse() + theme_bw()
+
+# overview plot of entire profile
+require(grid)
+require(gridExtra)
+theme_1 <- theme_minimal() + theme(aspect.ratio = 1.5, 
+                                   panel.border = element_rect(fill = NA),
+                                   axis.title.y = element_blank(),
+                                   axis.ticks = element_blank(),
+                                   plot.margin = unit(c(-50, 5.5, -50, 5.5), "pt"))
+
+theme_2 <- theme_minimal() + theme(aspect.ratio = 1.5, 
+               panel.border = element_rect(fill = NA),
+               axis.title.y = element_blank(),
+               axis.text.y = element_blank(),
+               axis.ticks = element_blank(),
+               plot.margin = unit(c(-50, 5.5, -50, 5.5), "pt"))
+
+p1 <- plus.ctd %>% ggplot(aes(x=depth, y=temperature)) + geom_line(color="coral2") + ylab("Temp. (°C)") + coord_flip() + scale_x_reverse() +  theme_1
+p2 <- plus.ctd %>% ggplot(aes(x=depth, y=salinity)) + geom_line(color="cornflowerblue") + ylab("Sal. (PSU)") +  coord_flip() + scale_x_reverse() +  theme_1
+p3 <- plus.ctd %>% filter(CLW_chl_a < 10) %>% ggplot(aes(x=depth, y=CLW_chl_a)) + geom_line(color="chartreuse4") +  ylab("Chl-a (μg/L)") + coord_flip() +  scale_x_reverse() + theme_1
+p4 <- plus.ctd %>% filter(CLW_turb < 10) %>% ggplot(aes(x=depth, y=CLW_turb)) + geom_line(color="chocolate4") + 
+      geom_line(aes(x=depth, y=turbidity), color="darkorange3", inherit.aes = F) +    ylab("Turbidity (FTU)") +  coord_flip() + scale_x_reverse() +  theme_1
+
+    
+p6 <- plus.ctd %>% ggplot(aes(x=depth, y=relative.light)) + geom_smooth(color="steelblue3") + ylab("Light (rel)") + coord_flip() + scale_x_reverse() + theme_1
+
+final.plot <- 
+grid.arrange(grobs = list(p1, p2, p3, p4, p6), nrow = 1, left = 'Depth (m)', 
+             top = textGrob("ATKA24_10_CTD",gp=gpar(fontsize=12,font=1)))
+
+
+ggsave("ATKA24_10_CTD_allparameters.png", 
+        plot=final.plot, 
+        device = "png",
+        width = 900,
+        height = 280, 
+        units = "px",
+        dpi=100)
+
+write.csv(plus.ctd, "ATKA24_10_CTD_allparameters.csv")
 
 
 
 
+svdat <- read.csv("AZFP_nano/Final/ATKA24_01_CTD1_AZFP_0.5m_Sv_corr.csv")
 
+Sv_label <- expression(paste("Sv [dB re 1/m]"))
 
+p5 <- 
+svdat %>%
+  group_by(depth_true) %>%
+  filter(range > 0.5) %>%
+  filter(depth_true < 150) %>%
+  summarise(sv = log10(mean(10^Sv_mean, na.rm=T)),
+            min = min(Sv_min, na.rm = T),
+            max = max(Sv_max, na.rm = T)) %>%
+  
+  ggplot(aes(x = depth_true, y = sv)) +
+  scale_y_continuous() + 
+  geom_line() + 
+  #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+  #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+  coord_flip()+ scale_x_reverse() +
+  ylab(Sv_label) + 
+  theme_2
 
-
-
+grid.arrange(grobs = list(p1, p2, p3, p4, p5, p6), nrow = 1, left = 'Depth (m)', 
+             top = textGrob("ATKA24_01_CTD1",gp=gpar(fontsize=12,font=1)))
