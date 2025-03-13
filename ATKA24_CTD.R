@@ -25,7 +25,7 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
 
 #### Create a heave file from CTD - for use in Echoview only ####
 
-stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_01_CTD3_full.xlsx", sheet=4, skip=1)
+stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_31_CTD_full.xlsx", sheet=4, skip=1)
 
 stn.full$Depth_date <- format(as.Date(stn.full$Time, format = "%Y-%m-%d"), "%m/%d/%Y" )
 stn.full$Depth_time <- format(stn.full$Time, format = "%H:%M:%S")
@@ -33,23 +33,23 @@ stn.full$Depth_meters <- stn.full$Depth
 stn.full$Depth_status <- 3
 stn.full <- stn.full[12:15]
 
-write.csv(stn.full, "ATKA24_01_CTD3_heave.depth.csv")
+write.csv(stn.full, "ATKA24_31_CTD_heave.depth.csv")
 
 
 #### AZFP DATA PROCESSING PIPELINE ####
 
 ### 1) READ IN FILES AND ASSIGN FILENAMES
  
-                                     filename_img <- "AZFP_nano/Final/ATKA24_04_CTD_AZFP_0.5m_Sv_corr.png"                            # assign image filename
-                                    filename_data <- "AZFP_nano/Final/ATKA24_04_CTD_AZFP_0.5m_Sv_corr.csv"                           # assign clean dataset filename
-       sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_full_casts/ATKA24_04_CTD_full.xlsx"))
-               stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_04_CTD_full.xlsx", sheet=sheetNr, skip=1)                     # pick the full CTD cast
-sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_04_CTD.xlsx"))
-        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_04_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
+                                     filename_img <- "AZFP_nano/Final/ATKA24_15_CTD_AZFP_0.5m_Sv_corr.png"                            # assign image filename
+                                    filename_data <- "AZFP_nano/Final/ATKA24_15_CTD_AZFP_0.5m_Sv_corr.csv"                           # assign clean dataset filename
+       sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_full_casts/ATKA24_15_CTD_full.xlsx"))
+               stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_15_CTD_full.xlsx", sheet=sheetNr, skip=1)                     # pick the full CTD cast
+sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_15_CTD.xlsx"))
+        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_15_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
                      
-
-nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
-
+nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081418_01A_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
+#nano2 <- read.csv("AZFP_nano/Intermediate/ATKA24_24081817_01A_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
+#nano <-rbind(nano, nano2)
 
         # separate metadata from AZFP data
         nano.meta <- nano[2:dim(nano)[1],1:6]      # select the metadata portion 
@@ -59,12 +59,33 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
         nano.meta$Date<- as.Date(as.character(nano.meta$Ping_date), "%Y-%m-%d")
         nano.meta$datetime <- as.POSIXct(paste(nano.meta$Ping_date, nano.meta$Ping_time), format="%Y-%m-%d %H:%M:%S", tz="UTC")
         
+        # round the AZFP interval to the nearest second
+        nano.meta$interval <- period_to_seconds(lubridate::seconds(nano.meta$datetime))
+        
         # convert CTD time variables
         stn.full$Depth_date <- format(as.Date(stn.full$Time, format = "%Y-%m-%d"), "%m/%d/%Y" )
         stn.full$Depth_time <- format(stn.full$Time, format = "%H:%M:%S")
         stn.full$datetime <- as.POSIXct(stn.full$Time,format="%Y-%m-%d %H:%M:%S", tz="UTC")
         stn.full$interval <- period_to_seconds(lubridate::seconds(stn.full$datetime))         # creates a numeric interval variable 
 
+        
+### CHECK IF INTERVALS FROM BOTH FILES OVERLAP
+        start1 <- min(stn.full$interval)
+        end1 <- max(stn.full$interval)
+        start2 <- min(nano.meta$interval, na.rm=T)
+        end2 <- max(nano.meta$interval, na.rm=T)
+        
+        # Logical check for overlap
+        overlap_check <- ifelse(start1 <= end2 & start2 <= end1, TRUE, FALSE)
+        print(overlap_check)
+
+        range(nano.meta$datetime, na.rm=T)
+        range(stn.full$datetime, na.rm=T)     
+
+        
+        
+        
+        
 ### 2) COMPUTE 1-SECOND AVERAGES TO MATCH CTD WITH AZFP FILES
 
 # calculate 1 second averages for the CTD data and round the interval to nearest second
@@ -155,8 +176,6 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
 
 ### 5) COMBINE CTD AND AZFP METADATA
         
-        # round the AZFP interval to the nearest second
-        nano.meta$interval <- period_to_seconds(lubridate::seconds(nano.meta$datetime))
         
         # bind the two datasets together
         nano.ctd <- nano.meta %>% 
@@ -199,7 +218,7 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
         # calculate time matrix - this uses a constant sounds speed
         # calculates the time for the signal to return based on the pulse length and nominal sound speed
         time.mat <- apply(nano.range,1:2, function(i)(c*t/4+i)*2/c) 
-        time.mat[1000:1005,1:10]
+        #time.mat[300:305,1:10]
 
 
     # Range correction based on sound speed
@@ -210,8 +229,8 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
         
         # test to make sure it worked -- ranges should fall within +/- 1 m of 50
         hist(nano.range_new[,4411])   # histogram of maximum ranges
-        nano.range_new[1000:1005,1:5] # subset
-        summary(nano.range_new[,4411]) # includes NAs for pings without CTD measurements
+        #nano.range_new[300:350,1:50] # subset
+       # summary(nano.range_new[,4411]) # includes NAs for pings without CTD measurements
 
    # TVG Range Correction - Need to figure out how to apply this to range measurements
         #  Need to include a TVG range correction
@@ -236,7 +255,7 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
         # calculate nominal power matrix - isolates the power terms, removing any variables that include impacted by sounds speed. 
         power <- nano.sv-20*log10(nano.range)-2*(coeff_abs)*(nano.range)+10*log10((c*t*y)/2) 
         
-        power[1000:1005,1:10]
+        #power[300:305,1:10]
 
 
     # Calculate Sv - Sv = power + spherical spreading loss + absorption loss - volume reverberation coefficient
@@ -250,7 +269,7 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
         reverb_coeff <- 10*log10(c_new*t*y_adj/2)  
         reverb_coeff <- matrix(reverb_coeff, nrow = nrow(power), ncol = ncol(power), byrow = FALSE)
         #check data
-        reverb_coeff[1000:1005,1:10]
+        #reverb_coeff[300:305,1:10]
 
     # RECALCULATE SV
         Sv_new <- power + spread_loss + abs_loss - reverb_coeff
@@ -267,18 +286,18 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
 
         # Check data
             # compute mean values 
-            Sv_new_mean <- t(data.frame(apply(Sv_new, 1, function(i) log10(mean(10^i, na.rm=T)))))
-            Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm=T)))))
+           # Sv_new_mean <- t(data.frame(apply(Sv_new, 1, function(i) log10(mean(10^i, na.rm=T)))))
+          #  Sv_old_mean <- t(data.frame(apply(nano.sv, 1, function(i) log10(mean(10^i, na.rm=T)))))
             
-            plot(Sv_new_mean[1,700:1300], type="l")
-            lines(Sv_old_mean[1,700:1300], type = "l", col = "red")
+            #plot(Sv_new_mean[1,700:1300], type="l")
+           # lines(Sv_old_mean[1,700:1300], type = "l", col = "red")
         
         #plot individual pings to compare corrected and uncorrected data
         
             # select individual ping
-            sv_new.ping <- data.frame(Sv_new[1200,], nano.range_new[1200,])
+            sv_new.ping <- data.frame(Sv_new[400,], nano.range_new[400,])
             colnames(sv_new.ping) <- c("Sv", "range")
-            sv_old.ping <- data.frame(nano.sv[1200,], nano.range[1200,])
+            sv_old.ping <- data.frame(nano.sv[400,], nano.range[400,])
             colnames(sv_old.ping) <- c("Sv", "range")
             
             # plot Sv vs Range
@@ -311,7 +330,7 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081311_01A_69001_C1_200KHZ.sv.
             # bind the nano metadata back with the Sv file.
             nano.sv_corrected <- cbind(nano.meta, Sv_new)
             #double-check
-            nano.sv_corrected[1:10,1:10]
+            nano.sv_corrected[1:10,1:100]
             
             
             #filter the echogram by the intervals of the trimmed downcast
@@ -418,9 +437,9 @@ stn.profile <- nano.sv_corrected %>%
 
 
 # Plot results
-require(showtext)
-font_add_google("Barlow") # add ASL font type
-showtext_auto() # gives showtext permission to overwrite ggplot default
+#require(showtext)
+#font_add_google("Barlow") # add ASL font type
+#showtext_auto() # gives showtext permission to overwrite ggplot default
 
 Sv_label <- expression(paste("S"["v"]," [dB re 1 m" ^-1,"]"))
 
@@ -487,7 +506,7 @@ final.plot <-
       
 plot_grid(p1,p2, align="hv", rel_widths = c(3:2), vjust=0.5)
 
-
+final.plot
 
 ### PUBLISH THE RESULTS ###
 ggsave(filename_img, 
@@ -503,20 +522,37 @@ write.csv(stn.profile, filename_data)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ##### PART 2 ###
 # depth alignment of light and turbidity and fluorescence data
 require(tidyverse)
 require(lubridate)
 require(readxl)
-clw <- read.csv("Alec-CLW/converted/20240812_1815_ACLW-USB_0271_171810_A.csv", skip = 30 )
+clw <- read.csv("Alec-CLW/converted/20240811_1150_01_ACLW-USB_0271_113625_A.csv", skip = 30 )
 
 colnames(clw)[1:6] <- c("datetime", "temp", "chl-flu", "chl-a", "turb-ftu", "batt-volt")
 
 clw$datetime <- as.POSIXct(clw$datetime,format="%Y/%m/%d %H:%M:%S", tz="UTC")
 clw$interval <- period_to_seconds(lubridate::seconds(clw$datetime))         # creates a numeric interval variable 
 
-sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_10_CTD.xlsx"))
-        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_10_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
+sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_01_CTD1.xlsx"))
+        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_01_CTD1.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
 
 stn.trim$datetime <- as.POSIXct(stn.trim$Time,format="%Y-%m-%d %H:%M:%S", tz="UTC")
 stn.trim$interval <- period_to_seconds(lubridate::seconds(stn.trim$datetime))         # creates a numeric interval variable 
@@ -560,15 +596,15 @@ clw.ctd %>%
 
 # add light data
 
-light <- read.csv("TDR-MK9/ATKA24_download081524-Archive.csv")
+light <- read.csv("TDR-MK9/2190089-Archive.csv")
 
 light$datetime <- as.POSIXct(light$Time,format="%m/%d/%Y %H:%M:%S", tz="UTC")
 light$interval <- period_to_seconds(lubridate::seconds(light$datetime))         # creates a numeric interval variable 
 
 # difference between peak light level and first interval in ctd file
-light$interval <- light$interval+26
+light$interval <- light$interval+22
 
-#light %>% filter(interval %in% c(1723570524:1723571382)) %>%
+#light %>% filter(interval %in% c(1723912112:1723912222)) %>%
 #  ggplot(aes(interval, Light.Level)) + geom_point()
 
 plus.ctd <- light %>% 
@@ -603,8 +639,8 @@ theme_2 <- theme_minimal() + theme(aspect.ratio = 1.5,
 
 p1 <- plus.ctd %>% ggplot(aes(x=depth, y=temperature)) + geom_line(color="coral2") + ylab("Temp. (°C)") + coord_flip() + scale_x_reverse() +  theme_1
 p2 <- plus.ctd %>% ggplot(aes(x=depth, y=salinity)) + geom_line(color="cornflowerblue") + ylab("Sal. (PSU)") +  coord_flip() + scale_x_reverse() +  theme_1
-p3 <- plus.ctd %>% filter(CLW_chl_a < 10) %>% ggplot(aes(x=depth, y=CLW_chl_a)) + geom_line(color="chartreuse4") +  ylab("Chl-a (μg/L)") + coord_flip() +  scale_x_reverse() + theme_1
-p4 <- plus.ctd %>% filter(CLW_turb < 10) %>% ggplot(aes(x=depth, y=CLW_turb)) + geom_line(color="chocolate4") + 
+p3 <- plus.ctd %>% filter(CLW_chl_a < 5) %>% ggplot(aes(x=depth, y=CLW_chl_a)) + geom_line(color="chartreuse4") +  ylab("Chl-a (μg/L)") + coord_flip() +  scale_x_reverse() + theme_1
+p4 <- plus.ctd %>% filter(CLW_turb < 5) %>% ggplot(aes(x=depth, y=CLW_turb)) + geom_line(color="chocolate4") + 
       geom_line(aes(x=depth, y=turbidity), color="darkorange3", inherit.aes = F) +    ylab("Turbidity (FTU)") +  coord_flip() + scale_x_reverse() +  theme_1
 
     
@@ -612,10 +648,10 @@ p6 <- plus.ctd %>% ggplot(aes(x=depth, y=relative.light)) + geom_smooth(color="s
 
 final.plot <- 
 grid.arrange(grobs = list(p1, p2, p3, p4, p6), nrow = 1, left = 'Depth (m)', 
-             top = textGrob("ATKA24_10_CTD",gp=gpar(fontsize=12,font=1)))
+             top = textGrob("ATKA24_01_CTD1",gp=gpar(fontsize=12,font=1)))
 
 
-ggsave("ATKA24_10_CTD_allparameters.png", 
+ggsave("ATKA24_01_CTD1_allparameters.png", 
         plot=final.plot, 
         device = "png",
         width = 900,
@@ -623,7 +659,7 @@ ggsave("ATKA24_10_CTD_allparameters.png",
         units = "px",
         dpi=100)
 
-write.csv(plus.ctd, "ATKA24_10_CTD_allparameters.csv")
+write.csv(plus.ctd, "ATKA24_01_CTD1_allparameters.csv")
 
 
 
