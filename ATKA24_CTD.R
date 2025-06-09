@@ -664,7 +664,7 @@ write.csv(plus.ctd, "ATKA24_01_CTD1_allparameters.csv")
 
 
 
-svdat <- read.csv("AZFP_nano/Final/ATKA24_01_CTD1_AZFP_0.5m_Sv_corr.csv")
+svdat <- read.csv("ATKA24 DATA/AZFP_nano/Final/ATKA24_01_CTD1_AZFP_0.5m_Sv_corr.csv")
 
 Sv_label <- expression(paste("Sv [dB re 1/m]"))
 

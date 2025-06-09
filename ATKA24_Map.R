@@ -146,7 +146,11 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
                          inherit.aes = F,
                          size=0.5) +
         
-        geom_spatial_label_repel(data=sites, aes(x=Longitude, y=Latitude, label= Station), color="red", 
+       # geom_spatial_label(data=sites, aes(x=Longitude, y=Latitude, label= Station), color="red", 
+        #                   inherit.aes = F, crs=4326, shape=16) +
+        
+        
+        geom_spatial_label(data=CTD.sum.tbl, aes(x=lon, y=lat, label= Site), color="red", 
                            inherit.aes = F, crs=4326, shape=16) +
         
   
@@ -227,7 +231,7 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
       
       
               
-      -38.75, -38.3, 65.55, 65.75
+
       
       
       
