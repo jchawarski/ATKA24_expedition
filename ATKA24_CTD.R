@@ -25,7 +25,7 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
 
 #### Create a heave file from CTD - for use in Echoview only ####
 
-stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_31_CTD_full.xlsx", sheet=4, skip=1)
+stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_02_CTD_full.xlsx", sheet=5, skip=1)
 
 stn.full$Depth_date <- format(as.Date(stn.full$Time, format = "%Y-%m-%d"), "%m/%d/%Y" )
 stn.full$Depth_time <- format(stn.full$Time, format = "%H:%M:%S")
@@ -40,14 +40,14 @@ write.csv(stn.full, "ATKA24_31_CTD_heave.depth.csv")
 
 ### 1) READ IN FILES AND ASSIGN FILENAMES
  
-                                     filename_img <- "AZFP_nano/Final/ATKA24_15_CTD_AZFP_0.5m_Sv_corr.png"                            # assign image filename
-                                    filename_data <- "AZFP_nano/Final/ATKA24_15_CTD_AZFP_0.5m_Sv_corr.csv"                           # assign clean dataset filename
-       sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_full_casts/ATKA24_15_CTD_full.xlsx"))
-               stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_15_CTD_full.xlsx", sheet=sheetNr, skip=1)                     # pick the full CTD cast
-sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_15_CTD.xlsx"))
-        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_15_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
+                                     filename_img <- "AZFP_nano/Final/ATKA24_02_CTD_AZFP_0.5m_Sv_corr.png"                            # assign image filename
+                                    filename_data <- "AZFP_nano/Final/ATKA24_02_CTD_AZFP_0.5m_Sv_corr.csv"                           # assign clean dataset filename
+       sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_full_casts/ATKA24_02_CTD_full.xlsx"))
+               stn.full <- read_excel("RBR_CTD_Tu/Exported_full_casts/ATKA24_02_CTD_full.xlsx", sheet=sheetNr, skip=1)                     # pick the full CTD cast
+sheetNr <- length(excel_sheets("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_02_CTD.xlsx"))
+        stn.trim <- read_excel("RBR_CTD_Tu/Exported_trimmed_downcasts/ATKA24_02_CTD.xlsx", sheet=sheetNr, skip=1)                           # pick the trimmed CTD cast
                      
-nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081418_01A_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
+nano <- read.csv("AZFP_nano/Intermediate/ATKA24_081220_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
 #nano2 <- read.csv("AZFP_nano/Intermediate/ATKA24_24081817_01A_69001_C1_200KHZ.sv.csv", header=F,fileEncoding = "UTF-8-BOM")  # read AZFP data as sv.csv exported from AZFP link
 #nano <-rbind(nano, nano2)
 
@@ -295,9 +295,9 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_24081418_01A_69001_C1_200KHZ.sv.
         #plot individual pings to compare corrected and uncorrected data
         
             # select individual ping
-            sv_new.ping <- data.frame(Sv_new[400,], nano.range_new[400,])
+            sv_new.ping <- data.frame(Sv_new[1200,], nano.range_new[1200,])
             colnames(sv_new.ping) <- c("Sv", "range")
-            sv_old.ping <- data.frame(nano.sv[400,], nano.range[400,])
+            sv_old.ping <- data.frame(nano.sv[1200,], nano.range[1200,])
             colnames(sv_old.ping) <- c("Sv", "range")
             
             # plot Sv vs Range

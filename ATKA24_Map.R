@@ -122,8 +122,8 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
     
     # ASSIGN bathymetric breaks and labels for plot
     
-    brk <- c(0, -50, -100, -150, -250,-500, -750, -1000)   #define bathymetry breaks
-    brk.labels <-c("0-50", "50-100", "100-150",  "150-250", "250-500", "500-750", "750-1000")
+    brk <- c(0, -50, -100, -150, -200, -250, -300, -350, -400, -450)   #define bathymetry breaks
+    brk.labels <-c("0-50", "50-100", "100-150", "150-200", "200-250", "250-300", "300-350", "350-400", "400-450")
     
     # PLOT
 
@@ -146,12 +146,12 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
                          inherit.aes = F,
                          size=0.5) +
         
-       # geom_spatial_label(data=sites, aes(x=Longitude, y=Latitude, label= Station), color="red", 
-        #                   inherit.aes = F, crs=4326, shape=16) +
-        
-        
-        geom_spatial_label(data=CTD.sum.tbl, aes(x=lon, y=lat, label= Site), color="red", 
+        geom_spatial_point(data=sites, aes(x=Longitude, y=Latitude), color="red", 
                            inherit.aes = F, crs=4326, shape=16) +
+        
+        
+        #geom_spatial_label(data=CTD.sum.tbl, aes(x=lon, y=lat, label= Site), color="red", 
+        #                   inherit.aes = F, crs=4326, shape=16) +
         
   
         xlab("Longitude") +
