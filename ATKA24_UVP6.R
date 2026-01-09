@@ -1,7 +1,207 @@
 # UVP6 Analysis
 
-# Last updated 07-02-2025
+#### PARTICLE ANALYsIS ####
+# updated 11-14-2025 #
 
+require(tidyverse)
+require(data.table)
+
+clean_names <- function(x) {
+  x |>
+    # remove units in brackets
+    str_remove("\\[.*?\\]") |>
+    # remove extra spaces
+    str_squish() |>
+    # replace bad microns symbol
+    str_replace_all("�m", "um") |>
+    # remove "LPM " prefix space (keep LPM)
+    str_replace("^LPM\\s+", "LPM ") |>
+    # convert >ranges into "gt16.4"
+    str_replace(">\\s*(\\d+\\.?\\d*)", "gt\\1") |>
+    # extract the range inside parentheses: (x-y um)
+    str_replace(".*\\(([^)]+)\\).*", "\\1") |>
+    # replace spaces in range
+    str_replace_all(" ", "") |>
+    # replace micron symbol after dash
+    str_replace("um", ".um") |>
+    # handle mm case
+    str_replace("mm", ".mm") |>
+    # add LPM prefix *only if original x had LPM*
+    (\(nm){
+      ifelse(
+        grepl("LPM", x, ignore.case = TRUE),
+        ifelse(
+          grepl("biovolume", x, ignore.case = TRUE),
+          paste0("LPM.biovolume.", nm),
+          paste0("LPM.", nm)
+        ),
+        nm   # leave unchanged if no LPM in original name
+      )
+    })()
+}
+
+setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland/ATKA24 DATA")
+
+meta <- as.data.frame(fread("UVP6/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_Export_metadata_summary.tsv"))
+
+stn.02 <- as.data.frame(fread("UVP6/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_PAR_atka24_11.tsv"))
+stn.02 <- stn.02[,1:35]
+colnames(stn.02) <- clean_names(colnames(stn.02))
+
+meta <- as.data.frame(fread("UVP6/NK_Ecopart/export_reduced_20251118_22_23_Export_metadata_summary.tsv"))
+
+
+stn<- as.data.frame(fread("UVP6/NK_Ecopart/export_reduced_20251118_22_23_PAR_atka24_36.tsv"))
+stn <- stn[,1:35]
+colnames(stn) <- clean_names(colnames(stn))
+
+
+stn %>% ggplot(aes(x=Depth, y=`LPM.256-512.um`)) + geom_line() + coord_flip() + scale_x_reverse() + theme_bw()
+
+##############################
+### SECTION PLOTS OF PSDs ####
+##############################
+# Istertup Kangertiva    filter just files with profiles along fjord
+{
+files <- list.files(path="UVP6/IK_Ecopart/export_reduced_20251114_22_33", full.names = TRUE, pattern = "PAR.*\\.tsv$") 
+
+PART <- lapply(files, function(i){as.data.frame(fread((i)))})                          # concatenates and trims upcast from all CTD files into large list
+
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:35 (if fewer exist, keep all)
+    df <- df[, seq_len(min(35, ncol(df)))]
+    
+    df
+  }
+)
+
+meta <- as.data.frame(fread("UVP6/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_Export_metadata_summary.tsv"))
+
+# IK Section Particles
+PART.all <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+      mutate(
+                                              Site = factor(Site, levels = c("ATKA24_03",
+                                                                          "ATKA24_05",
+                                                                         "ATKA24_06",
+                                                                        "ATKA24_07",
+                                                                       "ATKA24_08",
+                                                                      "ATKA24_02",
+                                                                     "ATKA24_09",
+                                                                    "ATKA24_10",
+                                                                   "ATKA24_11", 
+                                                                  "ATKA24_12",
+                                                                 "ATKA24_13",
+                                                                "ATKA24_14", 
+                                                               "ATKA24_15"))) 
+
+}
+
+# Nagtivit Kangertivat
+
+files <- list.files(path="UVP6/NK_Ecopart", full.names = TRUE, pattern = "PAR.*\\.tsv$") 
+
+PART <- lapply(files, function(i){as.data.frame(fread((i)))})                          # concatenates and trims upcast from all CTD files into large list
+
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:35 (if fewer exist, keep all)
+    df <- df[, seq_len(min(35, ncol(df)))]
+    
+    df
+  }
+)
+
+meta <- as.data.frame(fread("UVP6/NK_Ecopart/export_reduced_20251118_22_23_Export_metadata_summary.tsv"))
+
+# NK Section Particles
+PART.all <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  #filter(Site %in% light_at_sv_depth$Site) %>%
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_16",
+                                   "ATKA24_17",
+                                   "ATKA24_18",
+                                   "ATKA24_21",
+                                   "ATKA24_23",
+                                   "ATKA24_24",
+                                   "ATKA24_29",
+                                   "ATKA24_30",
+                                   "ATKA24_31", 
+                                   "ATKA24_32",
+                                   "ATKA24_36",
+                                   "ATKA24_38" 
+                                   ))) 
+
+
+
+
+# CREATE OCEANOGRAPHIC SECTION
+
+station_list <- split(PART.all, PART.all$Site)
+
+require(oce)
+ctd_list <- lapply(station_list, function(PART.all) {
+  # Create initial CTD object
+  ctd <- as.ctd(
+    salinity = rep(32, nrow(PART.all)),
+    temperature = rep(0, nrow(PART.all)),
+    pressure = PART.all$Depth,
+    longitude = unique(PART.all$Longitude),
+    latitude = unique(PART.all$Latitude),
+    #station = unique(PART.all$Profile)
+  )
+  
+  # Identify and add any additional variables (excluding core CTD ones)
+  core_vars <- c("salinity", "temperature", "pressure", "longitude", "latitude")
+  extra_vars <- setdiff(names(PART.all), core_vars)
+  
+  for (var in extra_vars) {
+    ctd[[var]] <- PART.all[[var]]
+  }
+  
+  return(ctd)
+})
+
+
+ctd.section <- as.section(ctd_list)
+
+station_names <- as.character(unique(PART.all$Site))
+
+plot(ctd.section, labels = FALSE, 
+     station.indices = station_names,
+     which = "LPM.1.02.2.05.mm",
+     ztype = "image", 
+     ytype = "depth")
+
+# Extract station names
+names <- ctd.section[["Profile"]]
+# Add names manually to the top
+axis(3, at = ctd.section[["distance"]], labels = names, las = 1, cex.axis = 0.7)
+
+
+
+
+
+##############################
+### MARINE SNOW MORPHOLOGY ###
+##############################
+# Last updated 07-02-2025
 
 # Questions: IK fjord has a thin scattering layer located at 105-110 m. What is the scattering layer composed of? 
 # Hypothesis: Thin scattering layer of copepods (Metridia, detrivore) feeding on an optimal marine snow particle type
@@ -11,7 +211,6 @@ require(tidyverse)
 require(data.table)
 
 setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland/ATKA24 DATA")
-
 
 stn.11    <-   as.data.frame(fread("UVP6/export__TSV_14590_20250702_1810/ecotaxa_atka24_11.tsv"))   
 stn.10    <-   as.data.frame(fread("UVP6/export__TSV_14590_20250702_1810/ecotaxa_atka24_10.tsv"))   
@@ -26,7 +225,7 @@ stn.02    <-   as.data.frame(fread("UVP6/export__TSV_14590_20250702_1810/ecotaxa
 
 
 IK.image <- rbind(stn.11, stn.10, stn.09, stn.08, stn.07, stn.06, stn.05, stn.04, stn.03, stn.02)
-IK.image$fjord <- "NK"
+IK.image$fjord <- "IK"
 
 stn.16    <-   as.data.frame(fread("UVP6/export__TSV_14590_20250702_1810/ecotaxa_atka24_16.tsv"))   
 stn.21    <-   as.data.frame(fread("UVP6/export__TSV_14590_20250702_1810/ecotaxa_atka24_21.tsv"))   
@@ -46,16 +245,18 @@ NK.image$fjord <- "NK"
 
 det <- rbind(IK.image, NK.image)
 
+det <- IK.image
 
-
-det <- stn.11 %>% filter(object_annotation_category %in% c("detritus", "detritus"))
+det <- det %>% filter(object_annotation_category %in% c("detritus", "detritus"))
 
 
 # Morphometrics of marine snow
 
 colnames(det)[41] <- "object_percarea"
 
-morph <- det %>% 
+morph <- det %>% #filter(object_depth_max < 200) %>%
+  
+  sample_n(0.1*dim(det)[1]) %>%
   
   dplyr::select(object_id,
                 sample_id,
@@ -99,7 +300,7 @@ morph <- det %>%
 
 trim <- function(x)
 {
-  quant <- quantile(x,c(0.005,0.995))
+  quant <- quantile(x,c(0.0005,0.9995))
   x[x < quant[1]] <- NA
   x[x > quant[2]] <- NA
   return(x)
@@ -165,16 +366,25 @@ p <- ggcorrplot(corr_matrix, method = "square",
 
 
 
-morph.pca <- prcomp(morph_scaled, scale. = F, center=T)
+morph.pca <- prcomp(morph[4:25], scale. = T, center=T)
+
+
 morph.pca_transform = as.data.frame(-morph.pca$x[,1:4]) # transforms the pca object and subsets only the first 4 PCs 
 
-fviz_nbclust(morph.pca_transform, kmeans, method = 'wss') # uses the elbow method to determine the value of k
 
 
 
-### NOT WORKING ### ----- warnings "Quick-TRANSfer stage steps exceeded maximum"
+# K-means - works with a small enough sample size but not effective at distinguishing particle types. 
 
-kmeans_morph.pca = kmeans(morph.pca_transform, centers = 4, nstart = 100)
+kmeans_morph.pca = kmeans(morph.pca_transform, centers = 4, nstart = 100, iter.max = 40)
+
+# HDBSCAN
+clust <- hdbscan(morph.pca_transform, minPts = 10)
+
+
+
+
+
 
 
 
@@ -192,6 +402,36 @@ centroids <- get.knnx(morph.pca_transform, kmeans_morph.pca$centers, 12)
 
 # IMPORTANT #
 morph.pca_transform$cluster <- kmeans_morph.pca$cluster
+morph.pca_transform$object_id <- morph$object_id
+
+morph.pca_transform$fjord <- morph$fjord
+
+
+morph.pca_transform <- morph.pca_transform %>% left_join(det, by="object_id")
+
+morph.pca_transform$sample_id <- morph.pca_transform$sample_id %>% fct_relevel(c("atka24_03", "atka24_04", "atka24_05", 
+                                                                        "atka24_06", "atka24_07", "atka24_08",
+                                                                        "atka24_02", "atka24_09", "atka24_10", "atka24_11"))
+  
+
+
+morph.pca_transform %>% sample_n(10000) %>% 
+  #filter(cluster %in% 4) %>%
+  ggplot(aes(x=sample_id, y=-object_depth_min, color=as.factor(cluster))) + geom_jitter(alpha=0.5) + facet_grid(rows = vars(cluster))
+
+#edge case visible in cluster... trying to isolate it.
+morph.pca_transform %>% ggplot(aes(x=PC1)) + geom_histogram() + xlim(150,200)
+
+edge <- morph.pca_transform %>% filter(PC1 > 170)
+
+edge <- edge %>% left_join(det, by="object_id")
+
+hist(edge$object_major)
+
+
+edge %>% ggplot(aes(x=sample_id, y=object_depth_min)) + geom_point()
+
+
 
 p1 <-   
   morph.pca_transform %>% ggplot(aes(x=PC1, y=PC2, color=factor(cluster))) + geom_point(alpha=0.8) + 

@@ -6,6 +6,7 @@ require(oce)
 setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland")
 
       
+Sv_label <- expression(paste("Sv [dB re 1/m]"))
 
       
       
@@ -19,6 +20,10 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
       #Nagtivit Kangertiva - filter files with profiles from along left fjord
       files <- list.files(path="ATKA24 DATA/All Parameters Profiles", full.names = TRUE, pattern= "*.csv") 
       files <- files[c(18, 23:26, 32:34, 37:40)]
+      
+      #All files
+      files <- list.files(path="ATKA24 DATA/All Parameters Profiles", full.names = TRUE, pattern= "*.csv") 
+      
       
       
       CTD <- lapply(files, function(i){read.csv(i)})                          # concatenates and trims upcast from all CTD files into large list
@@ -64,7 +69,7 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
       files <- list.files(path="ATKA24 DATA/AZFP_nano/Final", full.names = TRUE, pattern= "*.csv") 
       
       
-      SV <- lapply(files, function(i){read.csv(i)})                          # concatenates and trims upcast from all CTD files into large list
+      SV <- lapply(files, function(i){read.csv(i)})                          # concatenates all AZFP-nano files into large list
       
       # create empty df for metadata
       meta.tbl <- setNames(data.frame(matrix(ncol = 2, nrow = length(files))), c("Site", "ID"))
@@ -135,6 +140,8 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
       
       
         # site wise filtering
+require(TTR)
+      
       
       SV.smooth <- 
         
@@ -163,21 +170,21 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
         
             # REMOVE depths below seafloor and identify seafloor depths - Isterup Kangertivat
         
-          #  filter(
-           #   case_when(
-            #    Site == "ATKA24_02_CTD" ~ depth_true < 438,    # ATKA24_02_CTD bathy depth is 439 m
-             #   Site == "ATKA24_05_CTD" ~ depth_true < 352,    # ATKA24_05_CTD bathy depth is 352 m
-              #  Site == "ATKA24_06_CTD" ~ depth_true < 396,    # ATKA24_06_CTD bathy depth is 397 m
-               # Site == "ATKA24_07_CTD" ~ depth_true < 423,    # ATKA24_07_CTD bathy depth is 423 m
-                #Site == "ATKA24_08_CTD" ~ depth_true < 434,    # ATKA24_08_CTD bathy depth is 434 m
-  #              Site == "ATKA24_09_CTD" ~ depth_true < 262,    # ATKA24_09_CTD bathy depth is 262 m
-   #             Site == "ATKA24_12_CTD" ~ depth_true < 257,    # ATKA24_02_CTD bathy depth is 257 m
-    #            Site == "ATKA24_13_CTD" ~ depth_true < 254,    # no bathy depth
-     #           Site == "ATKA24_14_CTD" ~ depth_true < 162,    # ATKA24_02_CTD bathy depth is 162 m
-      #          Site == "ATKA24_15_CTD" ~ depth_true < 302,    # no bathy depth
-       #         TRUE ~ TRUE
-        #        )
-         #     ) %>%
+            filter(
+              case_when(
+                Site == "ATKA24_02_CTD" ~ depth_true < 438,    # ATKA24_02_CTD bathy depth is 439 m
+                Site == "ATKA24_05_CTD" ~ depth_true < 352,    # ATKA24_05_CTD bathy depth is 352 m
+                Site == "ATKA24_06_CTD" ~ depth_true < 396,    # ATKA24_06_CTD bathy depth is 397 m
+                Site == "ATKA24_07_CTD" ~ depth_true < 423,    # ATKA24_07_CTD bathy depth is 423 m
+                Site == "ATKA24_08_CTD" ~ depth_true < 434,    # ATKA24_08_CTD bathy depth is 434 m
+                Site == "ATKA24_09_CTD" ~ depth_true < 262,    # ATKA24_09_CTD bathy depth is 262 m
+                Site == "ATKA24_12_CTD" ~ depth_true < 257,    # ATKA24_02_CTD bathy depth is 257 m
+                Site == "ATKA24_13_CTD" ~ depth_true < 254,    # no bathy depth
+                Site == "ATKA24_14_CTD" ~ depth_true < 162,    # ATKA24_02_CTD bathy depth is 162 m
+                Site == "ATKA24_15_CTD" ~ depth_true < 302,    # no bathy depth
+                TRUE ~ TRUE
+                )
+              ) %>%
           
              # REMOVE depths below seafloor and identify seafloor depths - Nagtivit Kangertivat
         
@@ -217,20 +224,176 @@ setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/At
           ungroup() # %>%
         
         
+        # assign fjords to sites
+        
+          SV.smooth <- SV.smooth %>% mutate(fjord = case_when(Station %in% c("02", "03", "04","05","06", "07", "08","09", "10", "11", "12", "13") ~ "IK",
+                                                            Station %in% c("16", "17", "18", "21", "22", "23", "24", "29", "30", "31", "32", "36", "36", "38") ~ "NK", 
+                                                            Station %in% c("47", "48", "49", "50") ~ "Sermilik",
+                                                            FALSE ~ NA))
+        
+        
+
           # PLOT all profiles from section
-        
-        
-            ggplot(aes(x = depth_true, y = sv_smooth)) +
+          SV.smooth %>% filter(!fjord %in% NA) %>%
+            
+            ggplot(aes(x = depth_true, y = sv_smooth, color= fjord, group=Station)) +
             scale_y_continuous() + 
             geom_line() + 
             #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
             #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
             coord_flip()+ scale_x_reverse() +
-            ylab(Sv_label) +
-            #theme_2 + 
-            facet_wrap(~Site)
+            ylab(Sv_label) + 
+            xlab("Depth [m]") + 
+            xlim(400,0) + 
+            theme_bw()  
+            #facet_wrap(~fjord)
+          
+
+ 
+          
+ # LIGHT AND ACOUSTIC ANALYSIS
+          
+  # create a summary table that defines a threshold for the upper level of the krill scattering layer
+          # use the rule to define upper scattering layer depth such that any value below 80 m that crosses the -75dB threshold
+         
+          
+          # basic threshold based algo 
+        sl.depth <- SV.smooth %>%  filter(fjord %in% c("IK", "NK")) %>% 
+          group_by(Site) %>%
+          arrange(depth_true) %>%
+          filter(depth_true >= 80, !is.na(sv_smooth), sv_smooth >= -75) %>%
+          slice(1) %>%
+          ungroup() %>%
+          select(Site, depth_true, fjord, sv_smooth)
+                
+          
+          sl.depth %>% ggplot() + geom_histogram(aes(x=depth_true, fill=fjord))
+          
+          # more complex elbow based approach - NEEDS WORK, still not selecting the elbow properly
+          sl.depth <- SV.smooth %>% filter(fjord %in% c("IK", "NK")) %>%
+            group_by(Site) %>%
+            arrange(depth_true) %>%
+            filter(depth_true >= 50, !is.na(sv_smooth)) %>%
+            mutate(
+              future_max_sv = cummax(rev(sv_smooth)) |> rev(),
+              delta_sv = future_max_sv - sv_smooth
+            ) %>%
+            filter(delta_sv >= 10) %>%              # must increase by ≥ 5 later
+            slice_min(sv_smooth, n = 1) %>%         # pick the elbow (lowest Sv)
+            ungroup() %>%
+            select(Site, depth_true,fjord, sv_smooth, delta_sv)
+          
+          # another attempt
+          change_points <- SV.smooth %>%
+            filter(fjord %in% c("IK", "NK")) %>%
+            group_by(Site, fjord) %>%
+            arrange(depth_true) %>%
+            filter(depth_true >= 50, !is.na(sv_smooth)) %>%
+            mutate(
+              sv_20m = sv_smooth[findInterval(depth_true + 15, depth_true)],
+              delta_20m = sv_20m - sv_smooth
+            ) %>%
+            filter(delta_20m >= 5) %>%
+            summarise(
+              change_depth = first(depth_true),
+              change_sv    = first(sv_smooth),
+              delta_20m    = first(delta_20m),
+              .groups = "drop"
+            ) 
+          
+            light_at_sv_depth <- change_points %>%
+            inner_join(CTD.all, by = "Site") %>%
+            mutate(depth_diff = abs(depth - change_depth)) %>%
+            group_by(Site) %>%
+            slice_min(depth_diff, n = 1, with_ties = FALSE) %>%
+            ungroup() %>%
+            select(
+              Site,
+              fjord,
+              change_depth,
+              depth_light = depth,
+              relative.light,
+              CLW_chl_flu,
+              CLW_chl_a,
+              CLW_turb
+            )  
+          
+          
+          
+          
+     light_at_sv_depth %>% dplyr::filter(!Site %in% c("ATKA24_36_CTD", "ATKA24_38_CTD")) %>%
+     
+     ggplot(aes(x=change_depth, y=relative.light, label=Site, color=fjord)) + geom_point() + 
+       xlab("Upper Limit SL Depth (m)") + 
+       theme_bw()
+         
+     
+     SV.smooth %>% filter(fjord %in% (c( "NK", "IK"))) %>% #filter(Site %in% "ATKA24_21_CTD") %>%
+       
+       ggplot(aes(x = depth_true, y = sv_smooth, color= Site, group=Station)) +
+       scale_y_continuous() + 
+       geom_line() + 
+       geom_point(data=change_points, aes(x=change_depth, y=change_sv), inherit.aes=F) + 
+       #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+       #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+       coord_flip()+ scale_x_reverse() +
+       
+       ylab(Sv_label) + 
+       xlab("Depth [m]") + 
+       xlim(400,0) + 
+       theme_bw()  + 
+     facet_wrap(~Site)
+     
+     
+     
+     ### plot light profiles
+     fjords <- SV.smooth %>% group_by(Site) %>% summarise(fjord = first(fjord))
+     CTD.all <- CTD.all %>% left_join(fjords, by="Site")
+     
+     p1 <- 
+    CTD.all %>% filter(fjord %in% c("IK", "NK")) %>%
+     ggplot(aes(x = depth, y = relative.light, color=fjord, group=Site)) +
+       #scale_y_sqrt() + 
+       geom_line() + 
+       #geom_smooth(aes(group=fjord)) + 
+       #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+       #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+       coord_flip()+ scale_x_reverse() + xlim(200,0) +  
+      theme_bw() + theme(legend.position = "none")
+     
+      ### plot turbidity profiles
+     p2 <- 
+     CTD.all %>% filter(fjord %in% c("IK", "NK")) %>%
+       ggplot(aes(x = depth, y = turbidity, color=fjord, group=Site)) +
+       #scale_y_sqrt() + 
+       geom_line() + 
+       #geom_smooth(aes(group=fjord)) + 
+       #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+       #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+       coord_flip()+ scale_x_reverse() + xlim(200,0) +  
+       theme_bw() + theme(legend.position = "none")
+     
+     
+     ### plot fluorescence profiles
+     
+     p3 <-
+     CTD.all %>% filter(fjord %in% c("IK", "NK")) %>%
+       ggplot(aes(x = depth, y = CLW_chl_a, color=fjord, group=Site)) +
+       #scale_y_sqrt() + 
+       geom_line() + 
+       #geom_smooth(aes(group=fjord)) + 
+       #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+       #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+       coord_flip()+ scale_x_reverse() + xlim(200,0) +  ylim(0,4) + 
+       theme_bw()
+     
+     
+     require(cowplot)
+     plot_grid(p1,p2,p3, rel_widths = c(2,1,1), align="hv", nrow=1)
+     
+     
       
-      
+          
       # basic section       
       {station_list <- split(SV.smooth, SV.smooth$Site)
       
