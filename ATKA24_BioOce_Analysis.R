@@ -6,7 +6,7 @@ require(oce)
 setwd("C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland")
 
       
-Sv_label <- expression(paste("Sv [dB re 1/m]"))
+Sv_label <- expression(paste("Sv [dB re 1 m-1]"))
 
       
       
@@ -234,21 +234,26 @@ require(TTR)
         
 
           # PLOT all profiles from section
-          SV.smooth %>% filter(!fjord %in% NA) %>%
+          
+          sv.plot <- 
+          
+          SV.smooth %>% filter(!fjord %in% NA) %>% filter(!fjord %in% "Sermilik") %>%
+            filter(!Site %in% "ATKA24_18_CTD") %>%
             
             ggplot(aes(x = depth_true, y = sv_smooth, color= fjord, group=Station)) +
-            scale_y_continuous() + 
-            geom_line() + 
+            scale_y_continuous(breaks = seq(-95,-55,5), expand = c(0,0)) + 
+            scale_color_manual(values = c( "#215F9A", "#80350E")) + 
+            geom_line(size=1, alpha=0.8) + 
             #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
             #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
-            coord_flip()+ scale_x_reverse() +
+            coord_flip()+ 
+            scale_x_reverse(limits=c(400,0), breaks = seq(0,400,50), expand = c(0,0)) +
             ylab(Sv_label) + 
             xlab("Depth [m]") + 
-            xlim(400,0) + 
-            theme_bw()  
-            #facet_wrap(~fjord)
-          
+             
+            theme_bw()  + theme(legend.position = "none")
 
+            ggsave("ATKA24_IKNK_Sv_profiles.png", plot=sv.plot, height=5, width=3, dpi=400)
  
           
  # LIGHT AND ACOUSTIC ANALYSIS
@@ -304,12 +309,12 @@ require(TTR)
             light_at_sv_depth <- change_points %>%
             inner_join(CTD.all, by = "Site") %>%
             mutate(depth_diff = abs(depth - change_depth)) %>%
-            group_by(Site) %>%
+            group_by(Site, fjord.x) %>%
             slice_min(depth_diff, n = 1, with_ties = FALSE) %>%
             ungroup() %>%
             select(
               Site,
-              fjord,
+              fjord.x,
               change_depth,
               depth_light = depth,
               relative.light,
@@ -319,19 +324,56 @@ require(TTR)
             )  
           
           
-          
-          
-     light_at_sv_depth %>% dplyr::filter(!Site %in% c("ATKA24_36_CTD", "ATKA24_38_CTD")) %>%
-     
-     ggplot(aes(x=change_depth, y=relative.light, label=Site, color=fjord)) + geom_point() + 
-       xlab("Upper Limit SL Depth (m)") + 
-       theme_bw()
-         
-     
+       sv.light.dat <- light_at_sv_depth %>% dplyr::filter(!Site %in% c("ATKA24_36_CTD", "ATKA24_38_CTD", "ATKA24_29_CTD", "ATKA24_24_CTD", "ATKA24_04_CTD"))  
+       
+       
+       # start values for nls
+       start_vals <- list(
+         a = max(sv.light.dat$relative.light, na.rm = TRUE) - min(sv.light.dat$relative.light, na.rm = TRUE),
+         c = min(sv.light.dat$relative.light, na.rm = TRUE),
+         b = 1 / diff(range(sv.light.dat$change_depth, na.rm = TRUE))
+       )
+       
+       # fit the exponential decay model: relative.light decreases with depth
+       fit <- nls(
+         relative.light ~ a * exp(-b * change_depth) + c,
+         data = sv.light.dat,
+         start = start_vals
+       )
+       
+       # create new data for smooth curve
+       newdat <- tibble(
+         change_depth = seq(
+           min(sv.light.dat$change_depth, na.rm = TRUE),
+           max(sv.light.dat$change_depth, na.rm = TRUE),
+           length.out = 200
+         )
+       )
+       
+       # predict from the nls model
+       newdat <- newdat %>% mutate(fit = predict(fit, newdata = newdat))
+       
+       
+       
+        light.sv.plot <-    
+       sv.light.dat %>%
+         ggplot(aes(x = change_depth, y = relative.light, color = fjord.x)) +
+         geom_point(size=2) +
+         scale_color_manual(values = c(  "#215F9A", "#80350E")) + 
+         geom_line(data = newdat, aes(x = change_depth, y = fit), linewidth = 1, inherit.aes = F, alpha=0.5, color="grey50") +
+         #scale_y_continuous(expand = c(0,0)) +
+         #scale_x_continuous(expand = c(0,0)) +
+         xlab("Upper Limit SL Depth (m)") +
+         ylab("Light [rel]") +
+         theme_bw() + theme(legend.position = "none")
+       
+     ggsave("ATKA24_light-sv_plot.png", width=3, height=3, dpi=300)  
+       
      SV.smooth %>% filter(fjord %in% (c( "NK", "IK"))) %>% #filter(Site %in% "ATKA24_21_CTD") %>%
        
        ggplot(aes(x = depth_true, y = sv_smooth, color= Site, group=Station)) +
        scale_y_continuous() + 
+       
        geom_line() + 
        geom_point(data=change_points, aes(x=change_depth, y=change_sv), inherit.aes=F) + 
        #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
@@ -351,14 +393,14 @@ require(TTR)
      CTD.all <- CTD.all %>% left_join(fjords, by="Site")
      
      p1 <- 
-    CTD.all %>% filter(fjord %in% c("IK", "NK")) %>%
+    CTD.all %>% filter(fjord %in% c("IK", "NK")) %>% dplyr::filter(between(depth,0,150)) %>%
      ggplot(aes(x = depth, y = relative.light, color=fjord, group=Site)) +
        #scale_y_sqrt() + 
-       geom_line() + 
+       geom_point() + 
        #geom_smooth(aes(group=fjord)) + 
        #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
        #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
-       coord_flip()+ scale_x_reverse() + xlim(200,0) +  
+       coord_flip()+ scale_x_reverse() + #xlim(200,0) +  
       theme_bw() + theme(legend.position = "none")
      
       ### plot turbidity profiles
@@ -384,8 +426,56 @@ require(TTR)
        #geom_smooth(aes(group=fjord)) + 
        #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
        #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
-       coord_flip()+ scale_x_reverse() + xlim(200,0) +  ylim(0,4) + 
+       coord_flip()+ scale_x_reverse() + xlim(100,0) +  ylim(0,4) + 
        theme_bw()
+     
+     # plot temperature profiles
+     
+     CTD.all %>% filter(fjord %in% c("IK", "NK")) %>% filter(between(depth, 0, 10)) %>%
+       ggplot(aes(x = depth, y = temperature, color=fjord, group=Site)) +
+       #scale_y_sqrt() + 
+       geom_line() + 
+       #geom_smooth(aes(group=fjord)) + 
+       #  geom_line(aes(x = depth_true, y=min), inherit.aes = F , color="red") + 
+       #  geom_line(aes(x = depth_true, y=max), inherit.aes = F , color="blue") + 
+       coord_flip()+ scale_x_reverse() + xlim(10,0) +  
+       theme_bw()
+     
+     
+     
+     # Temperature
+     temp.plot <- 
+     
+     CTD.all %>% filter(fjord %in% c("IK", "NK")) %>% #filter(!Site %in% "ATKA24_13_CTD") %>%
+       ggplot(aes(x = depth, y = temperature, color=fjord, group=Site)) +
+       geom_line() + 
+       scale_color_manual(values = c(  "#215F9A", "#80350E")) + 
+       
+       coord_flip()+ scale_x_reverse(breaks = seq(0,300, 50), limits=c(300,0), expand = c(0,0)) +   
+       scale_y_continuous(limits = c(-1.5, 6), expand = c(0,0)) + 
+       xlab("Depth [m]") + ylab("Temp. [°C]") + 
+       theme_bw() + theme(legend.position = "none")
+     
+     ggsave("ATKA24_temp_profiles.png", plot=temp.plot, height=3, width=3, dpi=400)
+     
+     
+     
+     
+     # Fluorescence
+     
+     flu.plot <- 
+     CTD.all %>% filter(fjord %in% c("IK", "NK")) %>%
+       ggplot(aes(x = depth, y = CLW_chl_a, color=fjord, group=Site)) +
+       #scale_y_sqrt() + 
+       geom_line() + 
+       scale_color_manual(values = c(  "#215F9A", "#80350E")) + 
+       coord_flip()+ 
+       scale_x_reverse(breaks = seq(0,100, 25), limits=c(100,0), expand = c(0,0)) +
+       scale_y_continuous(limits = c(0, 4), expand = c(0,0)) + 
+       ylab("Chl-a [μg/L]") + xlab("Depth [m]") + 
+       theme_bw() + theme(legend.position = "none")
+     
+     ggsave("ATKA24_flu_profiles.png", plot=flu.plot, height=3, width=3, dpi=400)
      
      
      require(cowplot)
@@ -394,48 +484,30 @@ require(TTR)
      
       
           
-      # basic section       
-      {station_list <- split(SV.smooth, SV.smooth$Site)
+
       
-      ctd_list <- lapply(station_list, function(SV.smooth) {
-        # Create initial CTD object
-        ctd <- as.ctd(
-          #salinity = SV.smooth$salinity,
-          #temperature = SV.smooth$temperature,
-          #backscatter = SV.smooth$sv_smooth,
-          pressure = SV.smooth$depth_true,
-          longitude = unique(SV.smooth$Longitude),
-          latitude = unique(SV.smooth$Latitude)
-        )
-        
-        return(ctd)
-      })
-      
-            }
-      
-      
-      
-      
-      
-      
-      
-     # create an oceanographic section
+##### CREATE OCEANOGRAPHIC SECTIONS
+     
+     
+     #Isertup Kangertiva
+          {
+
       IK.section <- CTD.all %>% filter(Site %in% c(unique(SV.smooth$Site))) %>%
         
         
-   #     filter(Site %in% c("ATKA24_03_CTD",
-           #                                        "ATKA24_05_CTD",
-            #                                       "ATKA24_06_CTD",
-             #                                      "ATKA24_07_CTD",
-              #                                     "ATKA24_08_CTD",
-               #                                    "ATKA24_02_CTD",
-                #                                   "ATKA24_09_CTD",
-                 #                                  "ATKA24_10_CTD",
-                  #                                 "ATKA24_11_CTD", 
-                   #                                "ATKA24_12_CTD",
-                    #                               "ATKA24_13_CTD",
-                     #                              "ATKA24_14_CTD",
-                      #                             "ATKA24_15_CTD")) %>%
+        filter(Site %in% c(                        "ATKA24_03_CTD",
+                                                   "ATKA24_05_CTD",
+                                                   "ATKA24_06_CTD",
+                                                   "ATKA24_07_CTD",
+                                                   "ATKA24_08_CTD",
+                                                   "ATKA24_02_CTD",
+                                                   "ATKA24_09_CTD",
+                                                   "ATKA24_10_CTD",
+                                                   "ATKA24_11_CTD", 
+                                                   "ATKA24_12_CTD",
+                                                   "ATKA24_13_CTD",
+                                                   "ATKA24_14_CTD")) %>%
+                                                   #"ATKA24_15_CTD")) %>%
         
         dplyr::select(depth, salinity, temperature, pressure, relative.light, CLW_chl_flu, turbidity, CLW_turb, Longitude, Latitude, Site) %>%
         mutate(longitude = Longitude,
@@ -462,19 +534,19 @@ require(TTR)
           depth_true = as.numeric(sub("\\[|\\)|\\]", "", sub(",.*", "", depth_bin))),   # extract lower bound
         
            # ARRANGE in geographic order!
-        #  station = factor(station, levels = c("ATKA24_03_CTD",
-          #                                     "ATKA24_05_CTD",
-           #                                    "ATKA24_06_CTD",
-            #                                   "ATKA24_07_CTD",
-             #                                  "ATKA24_08_CTD",
-              #                                 "ATKA24_02_CTD",
-               #                                "ATKA24_09_CTD",
-                #                               "ATKA24_10_CTD",
-                 #                              "ATKA24_11_CTD", 
-                  #                             "ATKA24_12_CTD",
-                   #                            "ATKA24_13_CTD",
-                    #                           "ATKA24_14_CTD", 
-                     #                          "ATKA24_15_CTD")) 
+          station = factor(station, levels = c("ATKA24_03_CTD",
+                                               "ATKA24_05_CTD",
+                                               "ATKA24_06_CTD",
+                                               "ATKA24_07_CTD",
+                                               "ATKA24_08_CTD",
+                                               "ATKA24_02_CTD",
+                                               "ATKA24_09_CTD",
+                                               "ATKA24_10_CTD",
+                                               "ATKA24_11_CTD", 
+                                               "ATKA24_12_CTD",
+                                               "ATKA24_13_CTD",
+                                               "ATKA24_14_CTD" )) 
+                                               #"ATKA24_15_CTD")) 
           
           ) %>%
         
@@ -529,21 +601,7 @@ require(TTR)
       ctd.section <- as.section(ctd_list)
       
       
-      # modify the bottom depth
-      
-      ik.lat <- unique(IK.summary$Latitude)
-      ik.lon <- unique(IK.summary$Longitude)
-      ik.sites <- unique(IK.summary$station)
-
-      
-      dist <- geodDist(ik.lon, ik.lat, alongPath=F)
-      
-      bottom <- get.depth(bath, x=ik.lon, y=ik.lat, locator=F)
-      
-      # IK
-      bottom$sites <- ik.sites[1:13]
-      # NK
-      bottom$sites <- ik.sites[1:11]
+      #create string of depths corresponding to each station
       
       depths <- c(316, #03
                   352, #05
@@ -556,130 +614,254 @@ require(TTR)
                   361, #11
                   257, #12
                   254, #13
-                  162, #14
-                  302) #15
-      
-      
-      # NK
-      
-      depths <- -bottom$depth
+                  162) #14
+                  #302) #15
       
       # assign depth to each station
-      
       
       for (i in seq_along(ctd.section[["station"]])) {
         ctd.section[["station"]][[i]][["metadata"]][["waterDepth"]] <- depths[i]
       }
       
+     }
+
       
-      
-      
-      
+     #NAGTIVIT KANGERTIVAT
+          { 
+         NK.section <- CTD.all %>% filter(Site %in% c(unique(SV.smooth$Site))) %>%
+           
+           filter(fjord %in% "NK") %>%
+    
+          filter(!Site %in% "ATKA24_29_CTD") %>%
+           
+           dplyr::select(depth, salinity, temperature, pressure, relative.light, CLW_chl_flu, turbidity, CLW_turb, Longitude, Latitude, Site) %>%
+           mutate(longitude = Longitude,
+                  latitude = Latitude,
+                  station = Site,
+                  fluorescence = CLW_chl_flu,
+                  light = relative.light,
+                  turbidity.RBR = turbidity,
+                  turbidity.CLW = CLW_turb) %>%
+           dplyr::select(-Longitude, -Latitude, -Site, -CLW_chl_flu, -relative.light, -turbidity, -CLW_turb )
+         
+         
+         # AVERAGE each measurement into a discrete depth interval for joining with SV dataset
+         
+         NK.summary <- NK.section %>%
+           # 1. Create depth interval bins (e.g., 0–0.5, 0.5–1.0, etc.)
+           mutate(
+             depth_bin = cut(
+               depth,
+               breaks = seq(0, max(depth, na.rm = TRUE) + 0.5, by = 0.5),
+               right = FALSE,
+               include.lowest = TRUE
+             ),
+             depth_true = as.numeric(sub("\\[|\\)|\\]", "", sub(",.*", "", depth_bin))),   # extract lower bound
+             
+             # ARRANGE in geographic order!
+             station = factor(station, levels = c("ATKA24_18_CTD",
+                                                  "ATKA24_17_CTD",
+                                                  "ATKA24_16_CTD",
+                                                  "ATKA24_21_CTD",
+                                                  "ATKA24_23_CTD",
+                                                  "ATKA24_24_CTD",
+                                                  #"ATKA24_29_CTD",
+                                                  "ATKA24_30_CTD",
+                                                  "ATKA24_31_CTD", 
+                                                  "ATKA24_32_CTD",
+                                                  "ATKA24_36_CTD",
+                                                  "ATKA24_38_CTD" )) 
+             #"ATKA24_15_CTD")) 
+             
+           ) %>%
+           
+           # 2. Group by bin_lower (numeric lower bound)
+           group_by(station, depth_true) %>%
+           
+           # 3. Summarise variables
+           summarise(
+             salinity = mean(salinity, na.rm = TRUE),
+             temperature = mean(temperature, na.rm = TRUE),
+             pressure = mean(pressure, na.rm = TRUE),
+             fluorescence = mean(fluorescence, na.rm = TRUE),
+             light = mean(light, na.rm = TRUE),
+             turbidity.RBR = mean(turbidity.RBR, na.rm = TRUE),
+             turbidity.CLW = mean(turbidity.CLW, na.rm = TRUE),
+             .groups = "drop"
+           )  %>%
+           
+           mutate(Site = station) %>%
+           
+           right_join(SV.smooth, by=c("Site", "depth_true")) %>%
+           
+           dplyr::select(-Site, -Station)
+         
+         # CREATE OCEANOGRAPHIC SECTION
+         
+         station_list <- split(NK.summary, NK.summary$station)
+         
+         ctd_list <- lapply(station_list, function(NK.summary) {
+           # Create initial CTD object
+           ctd <- as.ctd(
+             salinity = NK.summary$salinity,
+             temperature = NK.summary$temperature,
+             pressure = NK.summary$pressure-10,
+             longitude = unique(NK.summary$Longitude),
+             latitude = unique(NK.summary$Latitude),
+             station = unique(NK.summary$station)
+           )
+           
+           # Identify and add any additional variables (excluding core CTD ones)
+           core_vars <- c("salinity", "temperature", "pressure", "longitude", "latitude", "station", "time")
+           extra_vars <- setdiff(names(NK.summary), core_vars)
+           
+           for (var in extra_vars) {
+             ctd[[var]] <- NK.summary[[var]]
+           }
+           
+           return(ctd)
+         })
+         
+         
+         ctd.section <- as.section(ctd_list)
+         
+         
+}
+     
+     
+     
       # BASIC SECTION plotting using native oce plotting function
 
-      station_names <- as.character(unique(IK.summary$station)[1:13])
+      station_names <- as.character(unique(NK.summary$station)[1:13])
       
       plot(ctd.section, labels = station_names, 
            which = "sv_smooth",
            ztype = "contour", 
            ytype = "depth")
       
-      # SV 
+      # Acoustic backscatter (SV)
+      
+      png(
+        "ATKA_24_NK_Sv_section.png",
+        width = 2400,
+        height = 1600,
+        res = 300
+      )
+      
       plot(ctd.section, labels = station_names, 
            which = "sv_smooth",
            ztype = "image", 
            ytype = "depth",
            ylim = c(400,0),
-           zbreaks = seq(-90, -55, 2), zcol = oceColorsViridis
+           legend.loc = "",
+           showStations = T,
+           #stationIndices = 1:12,
+           zbreaks = seq(-90, -55, 1), 
+           zcol = oceColorsViridis)
+      
+    dev.off()
+
+      # Turbidity
+    
+    
+      png(
+        "ATKA_24_NK_turb_section.png",
+        width = 2400,
+        height = 1600,
+        res = 300
       )
-      # Turbidity 
+    
+    
       plot(ctd.section, labels = station_names, 
            which = "turbidity.RBR",
            ztype = "image", 
            ytype = "depth",
+           legend.loc = "",
            ylim = c(400,0),
-           zbreaks = seq(0, 3, 0.2), zcol = oceColorsTemperature
+           zbreaks = seq(0, 2, 0.2), zcol = oceColorsTemperature
       )
+      
+      
+      dev.off()
+      
+      
       # Fluorescence
+      
+      
+      png(
+        "ATKA_24_IK_flu_section.png",
+        width = 2400,
+        height = 1600,
+        res = 300
+      )
+      
+      
+      
       plot(ctd.section, labels = station_names, 
            which = "fluorescence",
            ztype = "image", 
            ytype = "depth",
            ylim = c(400,0),
+           legend.loc = "",
            zbreaks = seq(0, 3, 0.05), zcol = oceColorsChlorophyll
       )
       
+      
+      
+      dev.off()
+      
+      
       # Light
+      
+      png(
+        "ATKA_24_NK_light_section.png",
+        width = 2400,
+        height = 1600,
+        res = 300
+      )
+      
+      
       plot(ctd.section, labels = station_names, 
            which = "light",
            ztype = "image", 
            ytype = "depth",
+           legend.loc = "",
            ylim = c(400,0),
            zbreaks = seq(40, 190, 10), zcol = oceColorsPAR
       )
       
       
+      dev.off()
       
-      
-      zbreaks = seq(-80, -55, 5), zcol = oceColorsTemperature
-      
-      
-      # ADVANCED SECTION plotting using imagep function
-      
-      s <- sectionGrid(ctd.section, p='levitus')
-      
-      nstation <- length(s[['station']])
-      p <- unique(s[['pressure']])
-      np <- length(p)
-      T <- S <- array(NA, dim=c(nstation, np))
-      for (i in 1:nstation) {
-        T[i, ] <- s[['station']][[i]][['temperature']]
-        S[i, ] <- s[['station']][[i]][['salinity']]
-      }
-      
-      distance <- unique(s[['distance']])
-      par(mfrow=c(2, 1))
-      imagep(distance, p, T, col=oceColorsTemperature, flipy=TRUE)
-      imagep(distance, p, S, col=oceColorsSalinity, flipy=TRUE)
 
-      par(mfrow=c(2, 1))
-      Tcm <- colormap(T, breaks=seq(-0.5, 0.5, 0.1), col=oceColorsTemperature)
-      Scm <- colormap(S, breaks=seq(28, 34, 0.2), col=oceColorsSalinity)
-      imagep(distance, p, T, colormap=Tcm, flipy=TRUE,
-             ylab='p [dbar]', filledContour=TRUE,
-             zlab='temperature [degC]')
-      imagep(distance, p, S, colormap=Scm, flipy=TRUE,
-             xlab='distance [km]', ylab='p [dbar]', filledContour=TRUE,
-             zlab='salinity')
       
       
       
-      # ADDING BATHYMETRIC DATA to section plot
       
       
-      # get depth points from GEBCO bathy using and then modify with true water depth. 
       
       
-      ik.lat <- unique(IK.summary$Latitude)
-      ik.lon <- unique(IK.summary$Longitude)
       
-      sites <- unique(IK.summary$station)    
       
-            dist <- geodDist(ik.lon, ik.lat, alongPath=F)
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
 
-            bottom <- get.depth(bath, x=ik.lon, y=ik.lat, locator=F)
-            
-            plot(ctd.section, 
-                 which = "",
-                 ztype = "image", 
-                 ylim= c(500,0),
-                 showStations = TRUE,
-                 showBottom = TRUE)
-            
-            
-            
-            polygon(c(dist, min(dist), max(dist)), c(-bottom$depth, 10000, 10000), col='grey') 
       
       
-      mb.bath <- read_sf("Mapping/atka_georeferenced_bathy.mbtiles")
+       
       
+
