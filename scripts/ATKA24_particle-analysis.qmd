@@ -1,0 +1,634 @@
+---
+title: "ATKA24 Particle Analysis"
+format: html
+---
+
+# Introduction
+
+### The following analysis is developed using UVP6 particle data from the ATKA24 expedition. Particles are derived from the detritus category, following identification and removal of zooplankton in eco-taxa. The goal of this analysis is to investigate patterns of aggregation/fragmentation using particle size distribution (PSD) slope throughout the water column. 
+
+# Setup
+
+```{r, warning = F, message = F}
+#load libraries
+library(janitor)
+library(tidyverse)
+library(data.table)
+library(here)
+```
+
+
+## Clean Data
+
+```{r}
+# load cleaning function for particle database variable names
+
+clean_names <- function(x) {
+  x |>
+    # remove units in brackets
+    str_remove("\\[.*?\\]") |>
+    # remove extra spaces
+    str_squish() |>
+    # replace bad microns symbol
+    str_replace_all("�m", "um") |>
+    # remove "LPM " prefix space (keep LPM)
+    str_replace("^LPM\\s+", "LPM ") |>
+    # convert >ranges into "gt16.4"
+    str_replace(">\\s*(\\d+\\.?\\d*)", "gt\\1") |>
+    # extract the range inside parentheses: (x-y um)
+    str_replace(".*\\(([^)]+)\\).*", "\\1") |>
+    # replace spaces in range
+    str_replace_all(" ", "") |>
+    # replace micron symbol after dash
+    str_replace("um", ".um") |>
+    # handle mm case
+    str_replace("mm", ".mm") |>
+    # add LPM prefix *only if original x had LPM*
+    (\(nm){
+      ifelse(
+        grepl("LPM", x, ignore.case = TRUE),
+        ifelse(
+          grepl("biovolume", x, ignore.case = TRUE),
+          paste0("LPM.biovolume.", nm),
+          paste0("LPM.", nm)
+        ),
+        nm   # leave unchanged if no LPM in original name
+      )
+    })()
+}
+
+
+```
+
+
+# Data Exploration
+## Understanding the file structure of 'reduced', 'detailed' and 'raw' file exports 
+
+```{r}
+
+atka24_47_PAR_reduced <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/export_reduced_20260401_21_40/export_reduced_20260401_21_40_PAR_atka24_47.tsv")))
+
+atka24_47_ZOO_reduced <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/export_reduced_20260401_21_40/export_reduced_20260401_21_40_ZOO_atka24_47.tsv")))
+
+
+atka24_47_PAR_reduced_det <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/detritus/export_reduced_20260401_21_51/export_reduced_20260401_21_51_PAR_atka24_47.tsv")))
+
+atka24_47_ZOO_reduced_det <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/detritus/export_reduced_20260401_21_51/export_reduced_20260401_21_51_ZOO_atka24_47.tsv")))
+
+
+# contains higher resolution binning
+
+atka24_47_PAR_detailed <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/export_detailed_20260331_23_40/export_detailed_20260331_23_40_PAR_atka24_47.tsv")))
+
+atka24_47_ZOO_detailed <-  as.data.frame(fread(here("data/particles/Sermilik_Ecopart/export_detailed_20260331_23_40/export_detailed_20260331_23_40_ZOO_atka24_47.tsv")))
+
+
+```
+
+## selecting the annotation category has no impact on the particle data, and other studies do particle analysis without partitioning out the zooplankton data. 
+
+```{r}
+# plot the reduced detritus datset
+ 
+colnames(atka24_47_ZOO_reduced_det)[4] <- "Depth"
+colnames(atka24_47_ZOO_reduced_det)[5] <- "sampled_volume"
+colnames(atka24_47_ZOO_reduced_det)[6] <- "abund"
+colnames(atka24_47_ZOO_reduced_det)[7] <- "biovolume"
+colnames(atka24_47_ZOO_reduced_det)[8] <- "mean_esd"
+
+atka24_47_ZOO_reduced_det %>%
+  
+  ggplot(aes(x=Depth, y=abund)) + geom_point() + geom_line() + scale_x_reverse() + coord_flip() + theme_bw() 
+
+
+
+```
+
+
+
+
+# Load data - exported from EcoPart
+## 1) Load metadata 
+## 2) Load particles - reduced versus detailed... detail provides more size classes for a better statistical fit
+## 3) Select profiles for sections
+## 4) Arrange in geographical order
+## 5) ...
+```{r}
+
+# read in all particle profile metadata - reduced
+#meta <-  as.data.frame(fread(here("data/particles/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_Export_metadata_summary.tsv")))
+
+# read in all particle profile metadata - detailed
+meta <-  as.data.frame(fread(here("data/particles/IK_Ecopart/export_detailed_20260401_22_38/export_detailed_20260401_22_38_Export_metadata_summary.tsv")))
+
+# NOTE: Ecopart mistakenly changed the header of first column from capitol P to lowercase p in "Profile", column 1
+colnames(meta)[1] <- "Profile"
+
+##### Isertup Kangertivat #####
+# read in particles data from IK fjord
+
+# list all files in the IK_Ecopart folder containing the term "PAR" indicating that they are particle profiles - REDUCED
+files <- list.files(path=here("data/particles/IK_Ecopart/export_reduced_20251114_22_33"), full.names = TRUE, pattern = "PAR.*\\.tsv$")
+
+
+# list all files in the IK_Ecopart folder containing the term "PAR" indicating that they are particle profiles - DETAILED
+files <- list.files(path=here("data/particles/IK_Ecopart/export_detailed_20260401_22_38"), full.names = TRUE, pattern = "PAR.*\\.tsv$")
+
+# read in all the files as dataframes, clean names, and limit the size
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:50  (if fewer exist, keep all) - 
+    # keeps only the particle abundances- to expand if biovolume is desired
+    df <- df[, seq_len(min(50, ncol(df)))]
+    
+    df
+  }
+)
+
+
+# IK Section Particles
+# Define and arrange profiles in geographical order from glacial front to fjord entrance
+# Note: numeric part of profile names indicate chronological order in which profiles were collected.
+PART.IK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+      mutate(
+                                              Site = factor(Site, levels = c("ATKA24_03",
+                                                                          "ATKA24_05",
+                                                                         "ATKA24_06",
+                                                                        "ATKA24_07",
+                                                                       "ATKA24_08",
+                                                                      "ATKA24_02",
+                                                                     "ATKA24_09",
+                                                                    "ATKA24_10",
+                                                                   "ATKA24_11", 
+                                                                  "ATKA24_12",
+                                                                 "ATKA24_13",
+                                                                "ATKA24_14", 
+                                                               "ATKA24_15"))) 
+
+# __________ SKIP TO NEXT SECTION _______#
+
+##### Nagtivit Kangertiva #####
+# read in particles data from NK fjord
+
+
+# NK Section Particles
+# Define and arrange profiles in geographical order from glacial front to fjord entrance
+
+files <- list.files(path=here("data/particles/NK_Ecopart/"), full.names = TRUE, pattern = "PAR.*\\.tsv$") 
+
+PART <- lapply(files, function(i){as.data.frame(fread((i)))})                          # concatenates and trims upcast from all CTD files into large list
+
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:35 (if fewer exist, keep all)
+    df <- df[, seq_len(min(52, ncol(df)))]
+    
+    df
+  }
+)
+
+meta <-  as.data.frame(fread(here("data/particles/NK_Ecopart/export_reduced_20251118_22_23_Export_metadata_summary.tsv")))
+
+# NK Section Particles
+PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  #filter(Site %in% light_at_sv_depth$Site) %>%
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_16",
+                                   "ATKA24_17",
+                                   "ATKA24_18",
+                                   "ATKA24_21",
+                                   "ATKA24_23",
+                                   "ATKA24_24",
+                                   "ATKA24_29",
+                                   "ATKA24_30",
+                                   "ATKA24_31", 
+                                   "ATKA24_32",
+                                   "ATKA24_36",
+                                   "ATKA24_38" 
+                                   ))) 
+
+
+
+
+```
+
+# show depth bins
+
+```{r}
+
+print(unique(PART.IK$Depth))
+
+```
+
+
+# Plot Particle PSDs for each fjord and station
+## skip this section if doing detailed analysis
+
+```{r}
+
+PART.IK %>% filter(between(Depth, 0, 150)) %>%
+  
+  select(Profile, Depth, LLPM.1.1.26.um, LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+  group_by(name, Depth) %>% 
+  summarise(count = mean(value))  %>%
+  mutate(
+    name = factor(
+      name,
+      levels = c(
+        "LPM.128.256.um",
+        "LPM.256.512.um",
+        "LPM.0.512.1.02.mm"
+      )
+    ))  %>%
+  ggplot(aes(x=Depth, y=count, fill=name)) + geom_col() + 
+  
+  scale_fill_manual(
+    values = c(
+      "LPM.128.256.um"    = "#009E73",
+      "LPM.256.512.um"    = "#0072B2",
+      "LPM.0.512.1.02.mm" = "#E69F00"
+    ),
+    labels = c("125-250 µm", "250-500 µm", "0.5-1mm"),
+    name="",
+  ) + 
+    coord_flip() + 
+    scale_x_reverse(breaks = seq(0,150,25), expand = c(0,0)) +  
+    scale_y_sqrt(limits=c(0,13000), expand = c(0,0)) +
+ 
+    theme_bw() + theme(legend.position = "bottom")
+
+```
+
+
+```{r}
+
+# REDUCED
+
+PART.IK %>% filter(between(Depth, 0, 200)) %>%
+  
+  select(Profile, Depth, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+
+   mutate(
+    name = factor(
+      name,
+      levels = c(
+        "LPM.32.64.um",
+        "LPM.64.128.um",
+        "LPM.128.256.um",
+        "LPM.256.512.um",
+        "LPM.0.512.1.02.mm"
+      ))) %>%
+  
+  #filter(Depth %in% 82.5) %>%
+  
+  ggplot(aes(x=name, y=value, color=Profile)) + geom_point()  +  scale_y_log10()  #+ facet_grid(~Profile)
+#
+
+
+# DETAILED
+
+PART.IK %>% filter(between(Depth, 0, 200)) %>%
+  
+  select(Profile, Depth, LPM.1.1.26.um:LPM.gt26.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+
+     mutate(
+    name = fct_inorder(name)
+  ) %>%
+  
+  #filter(Depth %in% 82.5) %>%
+  
+  ggplot(aes(x=name, y=value, color=Profile)) + geom_point()  +  scale_y_log10()  + theme_bw() + 
+    theme(axis.text.x = element_text(angle=90))
+#+ facet_grid(~Profile)
+#
+
+
+# after viewing the first plot, select the size ranges where there is a roughly linear slope
+# Kiko et al (2022) uses 0.203 to 2.05 mm and only slope regressions with p-value <0.05
+
+
+PART.IK %>% filter(between(Depth, 0, 200)) %>%
+  
+  select(Profile, Depth, LPM.203.256.um:LPM.1.63.2.05.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+
+     mutate(
+    name = fct_inorder(name)
+  ) %>%
+  
+  #filter(Depth %in% 82.5) %>%
+  
+  ggplot(aes(x=name, y=value, color=Profile)) + geom_point()  +  scale_y_log10()  + theme_bw() + 
+    theme(axis.text.x = element_text(angle=90))
+
+
+
+
+```
+
+# Compute Normalized Particle Size Distributions
+## The Ecopart database outputs Equivalent Spherical Diameter (ECD) and Biovolume for each size class. 
+##  $$ ECD =  2 * \sqrt{\frac{area}{\pi}} $$
+##  $$ Biovolume = \frac{1}{6} * \pi * ECD^3 $$
+
+## to compute normalized particle size distribution (PSD), we need the normalized abundance computed as the total number of particles in each ECD size (L^-1 um^-1) class, normalized by the cumulatied volume sampled (L) and the ECD bin width (um). This is done with the following equation
+ $$ 
+ NA_i = \frac{\sum \ {particle\ count}_{[i:i+1]}}{{volume\ sampled}} / ECD\ bin\ width_i
+ 
+ $$
+
+```{r}
+
+# REDUCED
+
+{
+nPSD <- PART.IK %>% 
+  
+  select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
+    
+   # re-factor size classes by increasing size
+   mutate(
+    name = factor(
+      name,
+      levels = c(
+        "LPM.32.64.um",
+        "LPM.64.128.um",
+        "LPM.128.256.um",
+        "LPM.256.512.um",
+        "LPM.0.512.1.02.mm"
+      ))) %>%
+  
+    # compute bin width for each size class, normalized using log bin width
+    mutate(bin_width = case_when(
+      name == "LPM.32.64.um" ~ log10(64)-log10(32),
+      name == "LPM.64.128.um" ~ log10(128)-log10(64),
+      name == "LPM.128.256.um" ~ log10(256)-log10(128),
+      name == "LPM.256.512.um" ~ log10(512)-log10(256),
+      name == "LPM.0.512.1.02.mm" ~ log10(1020)-log10(512)
+)) %>%
+
+  
+    # compute mean size of each class
+    mutate(mean_size_class = case_when(
+      name == "LPM.32.64.um" ~ sqrt(32*64),
+      name == "LPM.64.128.um" ~ sqrt(64*128),
+      name == "LPM.128.256.um" ~ sqrt(128*256),
+      name == "LPM.256.512.um" ~ sqrt(256*512),
+      name == "LPM.0.512.1.02.mm" ~ sqrt(512*1020)
+)) %>%
+   group_by(Depth, Profile) %>%
+  mutate(norm_abund = value / (Sampledvol.ume * bin_width))
+
+}
+
+# DETAILED
+
+
+nPSD <- PART.IK %>% 
+
+  select(Profile, Depth, Sampledvol.ume, LPM.50.8.64.um:LPM.1.63.2.05.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
+    
+   # re-factor size classes by order in which the appear in the data
+      mutate(
+    name = fct_inorder(name)
+  ) %>%
+  
+    # compute bin width for each size class, normalized using log bin width
+    mutate(bin_width = case_when(
+      #name == "LPM.50.8.64.um" ~ log10(64)-log10(50.8),
+      #name == "LPM.64.80.6.um" ~ log10(80.6)-log10(64),
+      #name == "LPM.80.6.102.um" ~ log10(102)-log10(80.6),
+      #name == "LPM.102.128.um" ~ log10(128)-log10(102),
+      #name == "LPM.128.161.um" ~ log10(161)-log10(128),
+      name == "LPM.161.203.um" ~ log10(203)-log10(161),
+      name == "LPM.203.256.um" ~ log10(256)-log10(203),
+      name == "LPM.256.323.um" ~ log10(323)-log10(256),
+      name == "LPM.323.406.um" ~ log(406) - log(323),
+      name == "LPM.406.512.um" ~ log10(512)-log10(406),
+      name == "LPM.512.645.um" ~ log10(645)-log10(512),
+      name == "LPM.645.813.um" ~ log10(813)-log10(645),
+      name == "LPM.0.813.1.02.mm" ~ log10(1020)-log10(813)
+      #name == "LPM.1.02.1.29.mm"  ~ log10(1290)-log10(1020),
+      #name == "LPM.1.29.1.63.mm" ~ log10(1630)-log10(1290), 
+      #name ==  "LPM.1.63.2.05.mm" ~ log10(2050)-log10(1630)
+)) %>%
+
+  
+    # compute mean size of each class
+    mutate(mean_size_class = case_when(
+      #name == "LPM.50.8.64.um" ~ sqrt(64*50.8),
+      #name == "LPM.64.80.6.um" ~ sqrt(80.6*64),
+      #name == "LPM.80.6.102.um" ~ sqrt(102*80.6),
+      #name == "LPM.102.128.um" ~ sqrt(128*102),
+      #name == "LPM.128.161.um" ~ sqrt(161*128),
+      #name == "LPM.161.203.um" ~ sqrt(203*161),
+      name == "LPM.203.256.um" ~ sqrt(256*203),
+      name == "LPM.256.323.um" ~ sqrt(323*256),
+      name == "LPM.323.406.um" ~ sqrt(406*323),
+      name == "LPM.406.512.um" ~ sqrt(512*406),
+      name == "LPM.512.645.um" ~ sqrt(645*512),
+      name == "LPM.645.813.um" ~ sqrt(813*645),
+      name == "LPM.0.813.1.02.mm" ~ sqrt(1020*813)
+      
+      #name == "LPM.1.02.1.29.mm"  ~ sqrt(1290*1020),
+      #name == "LPM.1.29.1.63.mm" ~ sqrt(1630*1290), 
+      #name ==  "LPM.1.63.2.05.mm" ~ sqrt(2050*1630)
+))  %>%
+   group_by(Depth, Profile) %>%
+  mutate(norm_abund = value / (Sampledvol.ume * bin_width))
+
+
+
+```
+
+# Plot normalized PSD
+
+```{r}
+
+# Plot normalized PSD
+nPSD %>%
+  
+filter(between(Depth, 0, 105)) %>%  
+  
+ggplot(aes(x=mean_size_class, y=norm_abund, color=Profile)) + geom_jitter()  +  scale_y_log10() + scale_x_log10() + 
+  theme_bw()
+
+# Plot normalized PSD
+nPSD %>%
+  
+  filter(Profile %in% "atka24_02") %>%
+  
+    ggplot(aes(y=norm_abund, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() 
+
+
+
+```
+# Fit a log-linear regression to each depth 5 m interval
+## using the following equation for normalized abundance
+$$ 
+ log_{10}(NA_i) =  log_{10}(I) + b*log_{10}(ECD_i)
+$$
+
+# Computing indices for particle size distributions
+## Particle size spectra can be used to explain and predict variability in carbon export efficiency. Larger particles tend to sink faster than small particles. Size-structure perspectives on plankton-trophic interactions provides a simplified connection between biogeochemistry and plantkon ecology.
+## Here, we want to compute slope, intercept, and R^2 and save them to a database
+
+```{r}
+
+nPSD_IK_summary <- nPSD %>%
+  filter(norm_abund > 0, mean_size_class > 0) %>%
+  group_by(Profile, Depth) %>%
+  summarise(
+    model = list(lm(log10(norm_abund) ~ log10(mean_size_class))),
+    
+    slope = coef(model[[1]])[2],
+    intercept = coef(model[[1]])[1],
+    r2 = summary(model[[1]])$r.squared,
+    
+    # p-value of the slope term
+    p_value = summary(model[[1]])$coefficients[2, 4],
+    
+    # significance flag
+    p_lt_0_05 = p_value < 0.05,
+    
+    .groups = "drop"
+  )
+
+nPSD_IK_with_model <- nPSD %>%
+  left_join(nPSD_IK_summary, by = c("Profile", "Depth"))
+
+
+write.csv(
+  nPSD_IK_summary %>% select(-model),
+  file = here("data/intermediate/ATKA24_IK_nPSD_detailed_modelresults.csv"),
+  row.names = FALSE
+)
+```
+
+# Now we can examine the variability of nPSD slope, intercept, and R^2 throughout the water column at a given site
+
+```{r}
+
+nPSD_IK_summary %>%
+  filter(between(Depth, 0,400)) %>%
+  filter(Profile %in% "atka24_06") %>%
+  ggplot(aes(y=slope, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+nPSD_IK_summary %>%
+  filter(between(Depth, 0,400)) %>%
+  filter(Profile %in% "atka24_06") %>%
+  ggplot(aes(y=intercept, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+nPSD_IK_summary %>%
+  filter(between(Depth, 0,400)) %>%
+  filter(Profile %in% "atka24_06") %>%
+  ggplot(aes(y=r2, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+
+```
+
+# Repeat the full analysis for Nagitivit Kangertivat fjord
+
+```{r}
+
+
+nPSD <- PART.NK %>% 
+  
+  select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
+    
+   # re-factor size classes by increasing size
+   mutate(
+    name = factor(
+      name,
+      levels = c(
+        "LPM.32.64.um",
+        "LPM.64.128.um",
+        "LPM.128.256.um",
+        "LPM.256.512.um",
+        "LPM.0.512.1.02.mm"
+      ))) %>%
+  
+    # compute bin width for each size class, normalized using log bin width
+    mutate(bin_width = case_when(
+      name == "LPM.32.64.um" ~ log10(64)-log10(32),
+      name == "LPM.64.128.um" ~ log10(128)-log10(64),
+      name == "LPM.128.256.um" ~ log10(256)-log10(128),
+      name == "LPM.256.512.um" ~ log10(512)-log10(256),
+      name == "LPM.0.512.1.02.mm" ~ log10(1020)-log10(512)
+)) %>%
+
+  
+    # compute mean size of each class
+    mutate(mean_size_class = case_when(
+      name == "LPM.32.64.um" ~ sqrt(32*64),
+      name == "LPM.64.128.um" ~ sqrt(64*128),
+      name == "LPM.128.256.um" ~ sqrt(128*256),
+      name == "LPM.256.512.um" ~ sqrt(256*512),
+      name == "LPM.0.512.1.02.mm" ~ sqrt(512*1020)
+)) %>%
+   group_by(Depth, Profile) %>%
+  mutate(norm_abund = value / (Sampledvol.ume * bin_width))
+
+nPSD_NK_summary <- nPSD %>%
+  filter(norm_abund > 0, mean_size_class > 0) %>%
+  group_by(Profile, Depth) %>%
+  summarise(
+    model = list(lm(log10(norm_abund) ~ log10(mean_size_class))),
+    slope = coef(model[[1]])[2],
+    intercept = coef(model[[1]])[1],
+    r2 = summary(model[[1]])$r.squared,
+    .groups = "drop"
+  )
+
+
+nPSD_NK_with_model <- nPSD %>%
+  left_join(nPSD_summary, by = c("Profile", "Depth"))
+
+
+write.csv(
+  nPSD_NK_summary %>% select(-model),
+  file = here("data/intermediate/ATKA24_NK_nPSD_modelresults.csv"),
+  row.names = FALSE
+)
+
+```
+
+# Now we can examine the variability of nPSD slope, intercept, and R^2 throughout the water column at a given site
+
+
+```{r}
+
+nPSD_NK_summary %>%
+  filter(between(Depth, 0,300)) %>%
+  filter(Profile %in% "atka24_22") %>%
+  ggplot(aes(y=slope, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+nPSD_NK_summary %>%
+  filter(between(Depth, 0,300)) %>%
+  filter(Profile %in% "atka24_22") %>%
+  ggplot(aes(y=intercept, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+nPSD_NK_summary %>%
+  filter(between(Depth, 0,300)) %>%
+  filter(Profile %in% "atka24_22") %>%
+  ggplot(aes(y=r2, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+
+
+```
+
+
