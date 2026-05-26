@@ -112,8 +112,8 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_081220_C1_200KHZ.sv.csv", header
         # plots the profiler depth and time
         p2 <- 
           stn.sum %>% 
-          ggplot(aes(x=datetime, y=-depth)) +
-          geom_line() + theme_bw()
+          ggplot(aes(x=datetime, y=-depth)) + xlab("Time")+
+          geom_line() + theme_bw() + theme(axis.text.x = element_text(angle=45, vjust=0.5))
         
         #plots the sound speed profile
         p3 <- 
@@ -121,10 +121,11 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_081220_C1_200KHZ.sv.csv", header
           geom_line() + 
           coord_flip() + 
           scale_x_reverse() + 
-          theme_bw()
+          ylab("Sound Speed [m/s]") +  
+          theme_bw() + theme(axis.text.x = element_text(angle=45, vjust=0.5))
         
         require(cowplot)
-        plot_grid(p1,p2,p3, nrow=1)
+        plot_grid(p2,p3, nrow=1)
         
 ### 3) CALCULATE 50 m AVERAGES OF WATER PROPERTIES AZFP ADJUSTMENTS
 
@@ -305,6 +306,7 @@ nano <- read.csv("AZFP_nano/Intermediate/ATKA24_081220_C1_200KHZ.sv.csv", header
               ggplot(aes(x=range, y=Sv)) + geom_line(color="black") + 
               geom_line(data=sv_old.ping, aes(x=range, y=Sv), color="red", inherit.aes = F) + 
               xlab("Range [m]") + ylab("Sv [dB]") + 
+              ylim(-120,-60) + 
               theme_bw()
         
 
@@ -664,7 +666,7 @@ write.csv(plus.ctd, "ATKA24_01_CTD1_allparameters.csv")
 
 
 
-svdat <- read.csv("ATKA24 DATA/AZFP_nano/Final/ATKA24_01_CTD1_AZFP_0.5m_Sv_corr.csv")
+svdat <- read.csv("AZFP_nano/Final/ATKA24_01_CTD1_AZFP_0.5m_Sv_corr.csv")
 
 Sv_label <- expression(paste("Sv [dB re 1/m]"))
 

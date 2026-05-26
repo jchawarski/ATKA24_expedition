@@ -116,7 +116,7 @@ atka24_47_ZOO_reduced_det %>%
 ```{r}
 
 # read in all particle profile metadata - reduced
-#meta <-  as.data.frame(fread(here("data/particles/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_Export_metadata_summary.tsv")))
+meta <-  as.data.frame(fread(here("data/particles/IK_Ecopart/export_reduced_20251114_22_33/export_reduced_20251114_22_33_Export_metadata_summary.tsv")))
 
 # read in all particle profile metadata - detailed
 meta <-  as.data.frame(fread(here("data/particles/IK_Ecopart/export_detailed_20260401_22_38/export_detailed_20260401_22_38_Export_metadata_summary.tsv")))
@@ -244,7 +244,7 @@ print(unique(PART.IK$Depth))
 
 PART.IK %>% filter(between(Depth, 0, 150)) %>%
   
-  select(Profile, Depth, LLPM.1.1.26.um, LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+  select(Profile, Depth, "LPM.128.256.um", LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
   group_by(name, Depth) %>% 
   summarise(count = mean(value))  %>%
   mutate(
@@ -357,7 +357,7 @@ PART.IK %>% filter(between(Depth, 0, 200)) %>%
 # REDUCED
 
 {
-nPSD <- PART.IK %>% 
+nPSD <- PART.NK %>% 
   
   select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
     
@@ -526,17 +526,17 @@ write.csv(
 
 nPSD_IK_summary %>%
   filter(between(Depth, 0,400)) %>%
-  filter(Profile %in% "atka24_06") %>%
-  ggplot(aes(y=slope, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
+  #filter(Profile %in% "atka24_06") %>%
+  ggplot(aes(y=slope, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_wrap(~Profile)
 
 nPSD_IK_summary %>%
   filter(between(Depth, 0,400)) %>%
-  filter(Profile %in% "atka24_06") %>%
+  #filter(Profile %in% "atka24_06") %>%
   ggplot(aes(y=intercept, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
 
 nPSD_IK_summary %>%
   filter(between(Depth, 0,400)) %>%
-  filter(Profile %in% "atka24_06") %>%
+  #filter(Profile %in% "atka24_06") %>%
   ggplot(aes(y=r2, x=Depth)) + geom_point() + geom_line() +  scale_x_reverse() + coord_flip() + theme_bw() + facet_grid(~Profile)
 
 
@@ -597,7 +597,7 @@ nPSD_NK_summary <- nPSD %>%
 
 
 nPSD_NK_with_model <- nPSD %>%
-  left_join(nPSD_summary, by = c("Profile", "Depth"))
+  left_join(nPSD_NK_summary, by = c("Profile", "Depth"))
 
 
 write.csv(
