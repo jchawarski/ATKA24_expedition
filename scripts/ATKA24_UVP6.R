@@ -111,15 +111,18 @@ PART.IK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # crea
 
 
 
-PART.IK %>% filter(between(Depth, 0, 150)) %>%
+PART.NK %>% filter(between(Depth, 0, 200)) %>%
   
-  select(Profile, Depth, LPM.128.256.um, LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+  select(Profile, Depth, LPM.16.32.um, LPM.32.64.um, LPM.64.128.um, LPM.128.256.um, LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
   group_by(name, Depth) %>% 
   summarise(count = mean(value))  %>%
   mutate(
     name = factor(
       name,
       levels = c(
+        "LPM.16.32.um",
+        "LPM.32.64.um",
+        "LPM.64.128.um",
         "LPM.128.256.um",
         "LPM.256.512.um",
         "LPM.0.512.1.02.mm"
@@ -129,18 +132,21 @@ PART.IK %>% filter(between(Depth, 0, 150)) %>%
   
   scale_fill_manual(
     values = c(
+      "LPM.16.32.um" = "pink",
+      "LPM.32.64.um" = "yellow",
+      "LPM.64.128.um" = "blue",
       "LPM.128.256.um"    = "#009E73",
       "LPM.256.512.um"    = "#0072B2",
       "LPM.0.512.1.02.mm" = "#E69F00"
     ),
-    labels = c("125-250 µm", "250-500 µm", "0.5-1mm"),
+    labels = c("16-32 um",  "32-64 µm", "64-124 µm",  "125-250 µm", "250-500 µm", "0.5-1mm"),
     name="",
   ) + 
     coord_flip() + 
-    scale_x_reverse(breaks = seq(0,150,25), expand = c(0,0)) +  
-    scale_y_sqrt(limits=c(0,13000), expand = c(0,0)) +
+    scale_x_reverse(breaks = seq(0,200,25), expand = c(0,0)) +  
+    #scale_y_sqrt(limits=c(0,13000), expand = c(0,0)) +
  
-    theme_bw() + theme(legend.position = "bottom")
+    theme_bw() + theme(legend.position = "bottom") + facet_grid(~name)
 
 
 
@@ -191,6 +197,49 @@ PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # crea
                                    "ATKA24_36",
                                    "ATKA24_38" 
                                    ))) 
+
+
+PART.NK$fjord <- "NK"
+PART.IK$fjord <- "IK"
+
+PART.all <- rbind (PART.NK, PART.IK)
+
+PART.all %>% filter(between(Depth, 0, 300)) %>%
+  
+  select(Profile, fjord, Depth, LPM.32.64.um, 
+         LPM.128.256.um, LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -fjord)) %>%
+  group_by(name, Depth, fjord) %>% 
+  summarise(count = mean(value))  %>%
+  mutate(
+    name = factor(
+      name,
+      levels = c(
+        "LPM.32.64.um",
+        "LPM.64.128.um",
+        "LPM.128.256.um",
+        "LPM.256.512.um",
+        "LPM.0.512.1.02.mm"
+      )
+    ))  %>%
+  ggplot(aes(x=Depth, y=count, fill=name)) + geom_col() + 
+  
+  scale_fill_manual(
+    values = c(
+      "LPM.32.64.um" = "yellow",
+      "LPM.64.128.um" = "blue",
+      "LPM.128.256.um"    = "#009E73",
+      "LPM.256.512.um"    = "#0072B2",
+      "LPM.0.512.1.02.mm" = "#E69F00"
+    ),
+    labels = c("16-32 um",  "32-64 µm", "64-124 µm",  "125-250 µm", "250-500 µm", "0.5-1mm"),
+    name="",
+  ) + 
+  coord_flip() + 
+  scale_x_reverse(breaks = seq(0,300,25), expand = c(0,0)) +  
+  #scale_y_sqrt(limits=c(0,13000), expand = c(0,0)) +
+  
+  theme_bw() + theme(legend.position = "bottom") + facet_grid(fjord~name, scales = "free_x")
+
 
 
 
@@ -556,17 +605,426 @@ ggsave("marinesnowboxplot_Figure4.png", plot = composite, width = 3.5, height = 
 
 
 
+#############################
+### ZOOPLANKTON ANALYSIS ####
+#############################
+
+# Data were manually validated and duplicates were removed on 06-11-2026
+# Exports are organized by taxa
+# Categories of copepods are combined into a single category
+
+# read data
+cop1 <- as.data.frame(fread("UVP6/export__TSV_14590_20260612_1904/ecotaxa_Copepoda_Multicrustacea.tsv"))   
+cop2 <- as.data.frame(fread("UVP6/export__TSV_14590_20260612_1904/ecotaxa_Calanidae.tsv"))   
+cop3 <- as.data.frame(fread("UVP6/export__TSV_14590_20260612_1904/ecotaxa_Calanoida.tsv"))   
+
+# bind data to create a single database of copepod images
+cop <- rbind(cop2,cop3)
+
+cop <- cop %>% filter(sample_id %in% c(
+                 "atka24_03",
+                 "atka24_05",
+                 "atka24_06",
+                 "atka24_07",
+                 "atka24_08",
+                 "atka24_02",
+                 "atka24_09",
+                 "atka24_10",
+                 "atka24_11", 
+                 "atka24_12",
+                 "atka24_13",
+                 "atka24_14", 
+                 "atka24_15"))
+
+
+cop %>% filter(object_area > 300) %>% 
+  ggplot(aes(x=object_depth_min)) + geom_histogram()
+
+
+cop <- cop %>% filter(sample_stationid %in% c("ATKA24_16",
+                                              "ATKA24_17",
+                                              "ATKA24_18",
+                                              "ATKA24_21",
+                                              "ATKA24_23",
+                                              "ATKA24_24",
+                                              "ATKA24_29",
+                                              "ATKA24_30",
+                                              "ATKA24_31", 
+                                              "ATKA24_32",
+                                              "ATKA24_36",
+                                              "ATKA24_38" ))
+
+
+cop %>% ggplot(aes(x=sample_stationid, y=depth))
+
+
+mutate(
+  Site = factor(Site, levels = c("ATKA24_16",
+                                 "ATKA24_17",
+                                 "ATKA24_18",
+                                 "ATKA24_21",
+                                 "ATKA24_23",
+                                 "ATKA24_24",
+                                 "ATKA24_29",
+                                 "ATKA24_30",
+                                 "ATKA24_31", 
+                                 "ATKA24_32",
+                                 "ATKA24_36",
+                                 "ATKA24_38" 
+  )))
+
+
+
+# Copepods from Ecopart - IK
+files <- list.files(path="UVP6/IK_Ecopart/export_detailed_20260612_22_36", full.names = TRUE, pattern = "ZOO.*\\.tsv$") 
+
+PART <- lapply(files, function(i){as.data.frame(fread((i)))})         
+
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:35 (if fewer exist, keep all)
+    df <- df[, seq_len(min(50, ncol(df)))]
+    
+    df
+  }
+)
+
+meta <- as.data.frame(fread("UVP6/IK_Ecopart/export_detailed_20260612_22_36/export_detailed_20260612_22_36_Export_metadata_summary.tsv"))
+colnames(meta)[1] <- "Profile"
+
+# IK Zooplanton abundances and biovolumes -
+# note: the clean_names function doesnt deal well with names... (e.g. biovol.ume)
+
+
+PART.IK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_03",
+                                   "ATKA24_04",
+                                   "ATKA24_05",
+                                   "ATKA24_06",
+                                   "ATKA24_07",
+                                   "ATKA24_08",
+                                   "ATKA24_02",
+                                   "ATKA24_09",
+                                   "ATKA24_10",
+                                   "ATKA24_11", 
+                                   "ATKA24_12",
+                                   "ATKA24_13",
+                                   "ATKA24_14", 
+                                   "ATKA24_15"))) 
+
+
+colnames(PART.IK)
+# select only category hierachies related to copepods
+PART.IK <- PART.IK[,c(1:20, 26,29,30, 31, 32, 57)]
+
+colnames(PART.IK)[21:26] <- c("Copepoda", "Calanoida", "Calanidae", "Malacostraca", "Eulmalacostraca", "Copepoda_biovol")
+
+ggplot(PART.IK,
+       aes(Site,
+           Depth,
+           fill = Copepoda)) +
+  
+  geom_tile(color="black") +
+  
+  scale_y_reverse() +
+  
+  scale_fill_viridis_c(
+    #trans = "log10"
+    na.value = "#440154"
+  ) + theme(axis.text.x = element_text(angle = 45))
+
+
+bin_size <- 10
+
+PART.IK$depth_bin10 <- floor(PART.IK$Depth / bin_size) * bin_size
+
+PART.IK_10 <- PART.IK %>%
+  group_by(depth_bin10, Site) %>%
+  summarise(
+    
+    sampled_volume = sum(Sampledvol.ume, na.rm = TRUE),
+    
+    Copepoda = sum(Copepoda * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    Calanoida = sum(Calanoida * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    Calanidae = sum(Calanidae * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    
+    .groups = "drop"
+  )
+
+ggplot(PART.IK_10,
+       aes(Site,
+           depth_bin10,
+           fill = Copepoda)) +
+  
+  geom_tile(color="black") +
+  
+  scale_y_reverse(expand = c(0, 0)) +
+  scale_x_discrete(position = "top", expand = c(0, 0)) +  
+  scale_fill_viridis_c(
+    limits = c(0,200),
+    #trans = "log10"
+    na.value = "#440154",
+  ) + 
+  xlab("Depth (m)") + 
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    plot.margin = margin(0, 0, 0, 0),
+    axis.text.x = element_text(angle = 45, hjust = 0),
+    panel.border = element_rect(linewidth = 0.5)
+  )
+# Bring in CTD data to plot alongside
+
+IK.section <- CTD.all %>% 
+  filter(Site %in% c(                        "ATKA24_03_CTD",
+                                             "ATKA24_05_CTD",
+                                             "ATKA24_06_CTD",
+                                             "ATKA24_07_CTD",
+                                             "ATKA24_08_CTD",
+                                             "ATKA24_02_CTD",
+                                             "ATKA24_09_CTD",
+                                             "ATKA24_10_CTD",
+                                             "ATKA24_11_CTD", 
+                                             "ATKA24_12_CTD",
+                                             "ATKA24_13_CTD",
+                                             "ATKA24_14_CTD",
+                                             "ATKA24_15_CTD")) %>%
+  
+  ggplot(aes(y=CLW_chl_a, x=depth, alpha = Site))  + 
+  geom_line(color="chartreuse4") +  
+  ylab("Chl-a (μg/L)") + coord_flip() +  scale_x_reverse() +
+  
+  #scale_x_reverse() + coord_flip() + 
+  ylim(-4,-1.5) + xlim(0,300) + 
+  theme_classic(base_size = 16) +   theme(
+    axis.text.y = element_text(angle = 90), 
+    axis.text.x = element_text(angle = 90),
+    panel.background = element_rect(fill = "transparent", color = NA),
+    plot.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA)
+  )
+
+  
+
+
+
+
+
+
+
+
+
+
+### Copepods from Ecopart - NK ###
+
+# LOAD data from NK
+files <- list.files(path="UVP6/NK_Ecopart/export_detailed_20260612_22_49", full.names = TRUE, pattern = "ZOO.*\\.tsv$") 
+
+PART <- lapply(files, function(i){as.data.frame(fread((i)))})         
+
+PART <- lapply(
+  files,
+  function(i) {
+    df <- as.data.frame(fread(i))
+    
+    # clean column names
+    colnames(df) <- clean_names(colnames(df))
+    
+    # keep only columns 1:35 (if fewer exist, keep all)
+    df <- df[, seq_len(min(50, ncol(df)))]
+    
+    df
+  }
+)
+
+meta <- as.data.frame(fread("UVP6/NK_Ecopart/export_detailed_20260612_22_49/export_detailed_20260612_22_49_Export_metadata_summary.tsv"))
+colnames(meta)[1] <- "Profile"
+
+# NK Zooplanton abundances and biovolumes -
+# note: the clean_names function doesnt deal well with names... (e.g. biovol.ume)
+
+
+########################
+### DEFINE TRANSECTS ###
+########################
+
+### NK TRANSECT  ####
+
+PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_16",
+                                   "ATKA24_17",
+                                   "ATKA24_18",
+                                   "ATKA24_21",
+                                   "ATKA24_23",
+                                   "ATKA24_24",
+                                   "ATKA24_29",
+                                   "ATKA24_30",
+                                   "ATKA24_31", 
+                                   "ATKA24_32",
+                                   "ATKA24_36",
+                                   "ATKA24_38" )))
+                                   
+
+### NK TRANSECT 2a - From first paper ####
+
+PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_20",
+                                   "ATKA24_19",
+                                   "ATKA24_18",
+                                   "ATKA24_17",
+                                   "ATKA24_16",
+                                   "ATKA24_21",
+                                   "ATKA24_22",
+                                   "ATKA24_23",
+                                   "ATKA24_24",
+                                   "ATKA24_30",
+                                   "ATKA24_31", 
+                                   "ATKA24_32",
+                                   "ATKA24_35",
+                                   "ATKA24_36",
+                                   "ATKA24_37",
+                                   "ATKA24_38" )))
+
+
+### NK TRANSECT 2b - From first paper ####
+
+PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_25",
+                                   "ATKA24_26",
+                                   "ATKA24_27",
+                                   "ATKA24_28",
+                                   "ATKA24_24",
+                                   "ATKA24_29")))
+
+
+### NK TRANSECT 3 - From first paper ####
+
+PART.NK <- lapply(PART, function(i){ rbind(unique(data.frame(i))) }) %>%  # creates a list of dataframes (of each cast)
+  bind_rows() %>%                                                        # binds all dfs
+  left_join(meta, ., by="Profile") %>%                                      # joins 
+  mutate(
+    Site = factor(Site, levels = c("ATKA24_42",
+                                   "ATKA24_43",
+                                   "ATKA24_44",
+                                   "ATKA24_45",
+                                   "ATKA24_46",
+                                   "ATKA24_40")))
+
+
+
+# select only category hierachies related to copepods
+PART.NK <- PART.NK[,c(1:20, 26,29,30, 31, 32, 57)]
+
+colnames(PART.NK)[21:26] <- c("Copepoda", "Calanoida", "Calanidae", "Malacostraca", "Eulmalacostraca", "Copepoda_biovol")
+
+PART.NK 
+ggplot(PART.NK,
+       aes(Site,
+           Depth,
+           fill = Copepoda)) +
+  
+  geom_tile(color="black") +
+  
+  scale_y_reverse() +
+  
+  scale_fill_viridis_c(
+    #limits = c(0,200),
+    #trans = "log10"
+    na.value = "#440154",
+  ) + theme(axis.text.x = element_text(angle = 45))
+
+
+
+# RESAMPLE into 10 m bins
+bin_size <- 10
+
+PART.NK$depth_bin10 <- floor(PART.NK$Depth / bin_size) * bin_size
+
+PART.NK_10 <- PART.NK %>%
+  group_by(depth_bin10, Site) %>%
+  summarise(
+    
+    sampled_volume = sum(Sampledvol.ume, na.rm = TRUE),
+    
+    Copepoda = sum(Copepoda * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    Calanoida = sum(Calanoida * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    Calanidae = sum(Calanidae * Sampledvol.ume, na.rm = TRUE) / sampled_volume,
+    
+    .groups = "drop"
+  )
+
+# PLOT resampled 10 m data
+
+PART.NK_10 %>% filter(Site != "NA") %>%
+ggplot( aes(Site,
+           depth_bin10,
+           fill = Copepoda)) +
+  
+  geom_tile(color="black") +
+  
+  scale_y_reverse(expand = c(0, 0)) +
+  scale_x_discrete(position = "top", expand = c(0, 0)) +  
+  scale_fill_viridis_c(
+    #limits = c(0,200),
+    #trans = "log10"
+    na.value = "#440154",
+  ) + 
+  xlab("Depth (m)") + 
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    plot.margin = margin(0, 0, 0, 0),
+    axis.text.x = element_text(angle = 45, hjust = 0),
+    panel.border = element_rect(linewidth = 0.5)
+  )
+
+
+
+
+
+
+
+
+
+
+
+
+
+### KRILL ###
+
+cop3 <- as.data.frame(fread("UVP6/export__TSV_14590_20260611_1921/ecotaxa_Calanoida.tsv"))   
+
+
+
 # Copepod vertical distribution
 
-cop <-NK.image %>% filter(object_annotation_category %in% c("Calanoida", "Copepoda<Maxillopoda", "Calanidae"))
+cop <- NK.image %>% filter(object_annotation_category %in% c("Calanoida", "Copepoda<Maxillopoda", "Calanidae"))
 
 cop %>% filter(object_major > 35) %>% 
   ggplot(aes(x=object_depth_min)) + geom_density(alpha=0.5, adjust = 1/100)
 
 
 
-cop %>% filter(object_major  > 35) %>%
-  ggplot(aes(x=-object_depth_min)) + geom_histogram(binwidth = 1) + coord_flip() + facet_grid(cols = vars(sample_id))
+cop %>% #filter(between(object_area, 500, 3000)) %>%
+  ggplot(aes(x=-object_depth_min-3.5)) + geom_histogram(binwidth = 1) + coord_flip() + facet_grid(cols = vars(sample_id))
 
 cop %>% ggplot(aes(x=object_major)) + geom_histogram(binwidth = 1)
 hist(cop$object_major)
@@ -574,11 +1032,11 @@ hist(cop$object_major)
 
 # Krill
 
-krill <- NK.image %>% filter(object_annotation_category %in% "Eumalacostraca")
+krill <- IK.image %>% filter(object_annotation_category %in% "Eumalacostraca")
 
 krill %>% #filter(object_major  < 35) %>%
-  ggplot(aes(x=-object_depth_min)) + geom_histogram(binwidth = 1) + coord_flip() + facet_grid(cols = vars(sample_id))
-
+  ggplot(aes(x=-object_depth_min, y= "count")) + geom_violin(fill="salmon") + xlab("Depth (m)") + ylab("") + 
+  xlim(-400, 0) + coord_flip() + theme_bw()
 # gelatinous
 
 table(IK.image$object_annotation_category)
