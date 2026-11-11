@@ -140,7 +140,7 @@ Sv_label <- expression(paste("Sv [dB re 1 m-1]"))
       
       
         # site wise filtering
-require(TTR)
+require(TTR) # requires for SMA()
       
       
       SV.smooth <- 
@@ -203,7 +203,6 @@ require(TTR)
         
         
         
-          
           # DESPIKE using a median filter with a 101 sample (50 m window)
           
           group_by(Site) %>%
@@ -482,10 +481,197 @@ require(TTR)
      plot_grid(p1,p2,p3, rel_widths = c(2,1,1), align="hv", nrow=1)
      
      
-      
-          
-
-      
+##### OPTICAL TRANSITION DEPTH ####
+     
+     ## Optical transition depth per CTD profile (Site) - multi-breakpoint version
+     ##
+     ## ln(relative.light) vs depth is fitted with a continuous piecewise-linear model
+     ## with 0, 1, 2 or 3 breakpoints (slope = -Kd in each segment). The number of
+     ## breakpoints is chosen by BIC. The optical transition is then the DEEPEST
+     ## breakpoint where Kd increases with depth (slope gets steeper).
+     ## Base R only.
+     
+     # ---- settings ---------------------------------------------------------------
+     depth_max        <- 200   # m, analysis window
+     bin_size         <- 1     # m, depth bin for median light
+     min_light        <- 2     # drop counts <= this (dark offset / noise floor)
+     min_seg_m        <- 8     # min length of every segment (m)
+     max_bp           <- 3     # maximum number of breakpoints to consider (0..max_bp)
+     bp_step          <- 1     # m, breakpoint search resolution
+     bic_tol          <- 2     # prefer fewer breakpoints unless BIC improves by > this
+     min_transition_m <- 20    # reported transition must be at least this deep (shallow
+     # kinks may still be fitted, but are not reported)
+     min_dKd          <- 0     # 1/m, required Kd increase at the reported transition
+     downcast_only    <- TRUE
+     make_plots       <- TRUE
+     
+     # ---- fit one profile --------------------------------------------------------
+     fit_transition <- function(d) {
+       d <- d[is.finite(d$depth) & is.finite(d$relative.light), ]
+       d <- d[d$depth >= 0 & d$depth <= depth_max & d$relative.light > min_light, ]
+       if (nrow(d) < 20) return(NULL)
+       
+       d$bin <- floor(d$depth / bin_size) * bin_size + bin_size / 2
+       b <- aggregate(relative.light ~ bin, data = d, FUN = median)
+       names(b) <- c("z", "light")
+       b$y <- log(b$light)
+       z <- b$z; y <- b$y; n <- length(z)
+       zmin <- min(z); zmax <- max(z)
+       if (zmax - zmin < 2 * min_seg_m) return(NULL)
+       
+       grid <- seq(zmin + min_seg_m, zmax - min_seg_m, by = bp_step)
+       if (length(grid) == 0) return(NULL)
+       
+       design <- function(bp, zz = z) {
+         X <- cbind(1, zz)
+         for (g in bp) X <- cbind(X, pmax(zz - g, 0))
+         X
+       }
+       rss_of  <- function(bp) sum(lm.fit(design(bp), y)$residuals^2)
+       valid   <- function(bp) all(diff(c(zmin, sort(bp), zmax)) >= min_seg_m - 1e-9)
+       bic_of  <- function(rss, k) n * log(max(rss, 1e-12) / n) + (2 + 2 * k) * log(n)
+       scan_bp <- function(others) {          # RSS for every candidate position
+         vapply(grid, function(g) {
+           bp <- c(others, g)
+           if (!valid(bp)) Inf else rss_of(bp)
+         }, numeric(1))
+       }
+       
+       # forward stepwise addition + coordinate refinement (continuous hinge model)
+       models <- vector("list", max_bp + 1)
+       models[[1]] <- list(bp = numeric(0), rss = rss_of(numeric(0)))
+       for (k in seq_len(max_bp)) {
+         prev <- models[[k]]$bp
+         r <- scan_bp(prev)
+         if (all(!is.finite(r))) break
+         cur <- c(prev, grid[which.min(r)])
+         for (iter in 1:20) {
+           changed <- FALSE
+           for (j in seq_along(cur)) {
+             r <- scan_bp(cur[-j])
+             if (min(r) < rss_of(cur) - 1e-10) { cur[j] <- grid[which.min(r)]; changed <- TRUE }
+           }
+           if (!changed) break
+         }
+         cur <- sort(cur)
+         models[[k + 1]] <- list(bp = cur, rss = rss_of(cur))
+       }
+       models <- Filter(Negate(is.null), models)
+       ks   <- seq_along(models) - 1
+       bics <- vapply(seq_along(models), function(i) bic_of(models[[i]]$rss, ks[i]), numeric(1))
+       kbest <- ks[min(which(bics <= min(bics) + bic_tol))]    # smallest k within tolerance
+       m   <- models[[kbest + 1]]
+       bp  <- m$bp
+       X   <- design(bp); beta <- lm.fit(X, y)$coefficients
+       
+       # segment slopes / Kd and Kd change at each breakpoint
+       slopes <- cumsum(beta[2:(2 + kbest)])        # one per segment
+       Kd     <- -slopes
+       dKd    <- if (kbest > 0) diff(Kd) else numeric(0)
+       
+       # reported transition: deepest breakpoint with Kd increase, deeper than min_transition_m
+       cand <- which(dKd > min_dKd & bp >= min_transition_m)
+       out <- data.frame(n_bins = n, n_breakpoints = kbest,
+                         all_breakpoints_m = paste(round(bp, 1), collapse = ";"),
+                         z_transition_m = NA_real_, z_ci_low = NA_real_, z_ci_high = NA_real_,
+                         Kd_above = NA_real_, Kd_below = NA_real_, delta_Kd = NA_real_,
+                         optical_depth = NA_real_, pct_surface_light = NA_real_,
+                         dBIC_vs_linear = bics[1] - bics[kbest + 1],
+                         r2 = 1 - m$rss / sum((y - mean(y))^2), stringsAsFactors = FALSE)
+       j <- NA
+       if (length(cand) > 0) {
+         j  <- max(cand)
+         zt <- bp[j]
+         # approximate 95% interval: scan breakpoint j with the others fixed
+         r    <- scan_bp(bp[-j])
+         crit <- m$rss * (1 + qf(0.95, 1, n - (2 + 2 * kbest)) / (n - (2 + 2 * kbest)))
+         ci   <- range(c(zt, grid[r <= crit]))
+         yhat <- function(zz) drop(design(bp, zz) %*% beta)
+         out$z_transition_m <- zt
+         out$z_ci_low <- ci[1]; out$z_ci_high <- ci[2]
+         out$Kd_above <- Kd[j]; out$Kd_below <- Kd[j + 1]; out$delta_Kd <- dKd[j]
+         out$optical_depth <- yhat(zmin) - yhat(zt)               # ln(L_top / L_transition)
+         out$pct_surface_light <- 100 * exp(yhat(zt) - yhat(zmin)) # relative to shallowest bin
+       }
+       attr(out, "plotdata") <- list(b = b, bp = bp, beta = beta, j = j, design = design)
+       out
+     }
+     
+     # ---- run per Site -----------------------------------------------------------
+     prep <- CTD.all
+     prep$datetime <- as.POSIXct(prep$datetime, tz = "UTC")
+     prep <- prep[order(prep$Site, prep$datetime), ]
+     
+     res_list <- list(); fits <- list()
+     for (s in unique(prep$Site)) {
+       d <- prep[prep$Site == s, ]
+       if (downcast_only) d <- d[seq_len(which.max(d$depth)), ]
+       f <- fit_transition(d)
+       if (is.null(f)) { message("Skipped (too few usable points): ", s); next }
+       if (is.na(f$z_transition_m)) message("No Kd-increasing transition found: ", s)
+       fits[[s]] <- f
+       res_list[[s]] <- cbind(Site = s, f)
+     }
+     transition_depth <- do.call(rbind, res_list)
+     rownames(transition_depth) <- NULL
+     print(transition_depth)
+     write.csv(transition_depth, "ATKA24_Expedition/data/optical_transition_depth.csv", row.names = FALSE)
+     
+     # ---- diagnostic plots -------------------------------------------------------
+     if (make_plots) {
+       pdf("ATKA24_Expedition/figs/optical_transition_profiles.pdf", width = 5, height = 6)
+       for (s in names(fits)) {
+         f <- fits[[s]]; p <- attr(f, "plotdata")
+         zz <- seq(min(p$b$z), max(p$b$z), length.out = 400)
+         plot(p$b$y, p$b$z, ylim = rev(range(p$b$z)), pch = 16, cex = 0.6,
+              xlab = "ln(relative light)", ylab = "Depth (m)", main = s)
+         lines(drop(p$design(p$bp, zz) %*% p$beta), zz, col = "red", lwd = 2)
+         abline(h = p$bp, lty = 3, col = "grey50")
+         if (!is.na(f$z_transition_m)) {
+           rect(par("usr")[1], f$z_ci_low, par("usr")[2], f$z_ci_high,
+                col = adjustcolor("blue", 0.1), border = NA)
+           abline(h = f$z_transition_m, lty = 2, col = "blue", lwd = 1.5)
+           legend("bottomleft", bty = "n", cex = 0.8,
+                  legend = sprintf("z = %.1f m (%.1f-%.1f)\nKd: %.3f -> %.3f 1/m\n%d bp, dBIC = %.1f",
+                                   f$z_transition_m, f$z_ci_low, f$z_ci_high,
+                                   f$Kd_above, f$Kd_below, f$n_breakpoints, f$dBIC_vs_linear))
+         } else {
+           legend("bottomleft", bty = "n", cex = 0.8, legend = "no Kd-increasing transition")
+         }
+       }
+       dev.off()
+     }
+     
+     
+  # Compute summary statistics for each section
+     # Percentage of light level referenced to surface
+     # delta_kd -> indicates how strong of a transition in light
+     
+     transition_depth <- transition_depth %>% left_join(fjords, by="Site")
+     
+     # t-based confidence interval of the mean; returns c(lower, upper)
+     ci_t <- function(x, level = 0.95) {
+       x <- x[is.finite(x)]
+       n <- length(x)
+       if (n < 2) return(c(NA_real_, NA_real_))
+       mean(x) + c(-1, 1) * qt(1 - (1 - level) / 2, n - 1) * sd(x) / sqrt(n)
+     }
+     
+     optic_summary <- transition_depth %>%
+       group_by(fjord) %>%
+       summarise(
+         n        = sum(is.finite(delta_Kd)),
+         kd_mean  = mean(delta_Kd, na.rm = TRUE),
+         kd_lower = ci_t(delta_Kd)[1],
+         kd_upper = ci_t(delta_Kd)[2],
+         sl_mean  = mean(pct_surface_light, na.rm = TRUE),
+         sl_lower = ci_t(pct_surface_light)[1],
+         sl_upper = ci_t(pct_surface_light)[2],
+         .groups = "drop"
+       )
+     
+     optic_summary
+     
 ##### CREATE OCEANOGRAPHIC SECTIONS
      
      
@@ -627,7 +813,11 @@ require(TTR)
 
       
      #NAGTIVIT KANGERTIVAT
-          { 
+     fjords <- SV.smooth %>% group_by(Site) %>% summarise(fjord = first(fjord))
+     CTD.all <- CTD.all %>% left_join(fjords, by="Site")
+     
+     
+      { 
          NK.section <- CTD.all %>% filter(Site %in% c(unique(SV.smooth$Site))) %>%
            
            filter(fjord %in% "NK") %>%
@@ -730,7 +920,11 @@ require(TTR)
      
      
      
-      # BASIC SECTION plotting using native oce plotting function
+     
+     
+     
+     
+##### BASIC SECTION plotting using native oce plotting function
 
       station_names <- as.character(unique(NK.summary$station)[1:13])
       
@@ -749,7 +943,7 @@ require(TTR)
       )
       
       plot(ctd.section, labels = station_names, 
-           which = "sv_smooth",
+           which = "sv_",
            ztype = "image", 
            ytype = "depth",
            ylim = c(400,0),
@@ -758,6 +952,10 @@ require(TTR)
            #stationIndices = 1:12,
            zbreaks = seq(-90, -55, 1), 
            zcol = oceColorsViridis)
+      # add the optical transition zone lines
+      lines(x[o], tr$z_transition_m[o], col = "white", lwd = 1.5, lty="dashed")
+      points(x[o], tr$z_transition_m[o], pch = 21, bg = "white")
+      
       
     dev.off()
 
@@ -765,7 +963,7 @@ require(TTR)
     
     
       png(
-        "ATKA_24_NK_turb_section.png",
+        "ATKA24_expedition/figs/ATKA_24_NK_turb_section.png",
         width = 2400,
         height = 1600,
         res = 300
@@ -775,11 +973,14 @@ require(TTR)
       plot(ctd.section, labels = station_names, 
            which = "turbidity.RBR",
            ztype = "image", 
-           ytype = "depth",
+           ytype = "pressure",
            legend.loc = "",
            ylim = c(400,0),
            zbreaks = seq(0, 2, 0.2), zcol = oceColorsTemperature
       )
+      # add the optical transition zone lines
+      lines(x[o], tr$z_transition_m[o], col = "white", lwd = 1.5, lty="dashed")
+      points(x[o], tr$z_transition_m[o], pch = 21, bg = "white")
       
       
       dev.off()
@@ -813,31 +1014,76 @@ require(TTR)
       
       # Light
       
-      png(
-        "ATKA_24_NK_light_section.png",
-        width = 2400,
-        height = 1600,
-        res = 300
+      ## Light section with optical transition depth overlay (oce)
+      ## Requires in the workspace: ctd.section (oce section), transition_depth (from
+      ## optical_transition_depth_v2.R), and optionally station_names.
+      
+      library(oce)
+      
+      # ---- 1. Transition depth per Site -------------------------------------------
+      tr <- transition_depth[, c("Site", "z_transition_m", "z_ci_low", "z_ci_high")]
+      tr <- tr[!is.na(tr$z_transition_m), ]          # drop sites with no transition
+      
+      # ---- 2. Station positions and IDs, in section order -------------------------
+      lon  <- ctd.section[["longitude", "byStation"]]
+      lat  <- ctd.section[["latitude",  "byStation"]]
+      stns <- ctd.section@data$station                # list of ctd objects
+      
+      get_id <- function(s) {
+        v <- s@metadata$ID                            # 1) metadata
+        if (is.null(v)) v <- s@data$ID                # 2) data column (one value per row)
+        if (is.null(v)) v <- s@metadata$station       # 3) usual oce station field
+        if (is.null(v)) v <- s@metadata$stationId
+        as.character(v[1])                            # one value per station
+      }
+      stn_id <- vapply(stns, get_id, character(1))
+      
+      # ---- 3. Match Sites to section stations by name -----------------------------
+      idx <- match(trimws(tr$Site), trimws(stn_id))
+      if (anyNA(idx)) {
+        warning("No section station found for: ", paste(tr$Site[is.na(idx)], collapse = ", "))
+        tr  <- tr[!is.na(idx), ]
+        idx <- idx[!is.na(idx)]
+      }
+      
+      # ---- 4. Candidate x definitions (km from first station) ---------------------
+      cand <- list(
+        oce      = tryCatch(as.numeric(ctd.section[["distance", "byStation"]]),
+                            error = function(e) NULL),
+        along    = geodDist(lon, lat, alongPath = TRUE),
+        straight = geodDist(lon[1], lat[1], lon, lat)
       )
+      cand <- Filter(function(v) !is.null(v) && length(v) == length(lon) && !anyNA(v), cand)
       
+      # ---- 5. Plot ----------------------------------------------------------------
+      png("ATKA24_expedition/figs/ATKA_24_IK_light_section.png", width = 2400, height = 1600, res = 300)
       
-      plot(ctd.section, labels = station_names, 
+      plot(ctd.section, labels = stn_id,
            which = "light",
-           ztype = "image", 
+           ztype = "image",
            ytype = "depth",
+           xtype = "distance",
            legend.loc = "",
-           ylim = c(400,0),
-           zbreaks = seq(40, 190, 10), zcol = oceColorsPAR
-      )
+           ylim = c(400, 0),
+           zbreaks = seq(40, 190, 10), zcol = oceColorsPAR)
       
+      # Pick the candidate whose span matches the plotted x axis
+      usr   <- par("usr")[1:2]
+      width <- function(v) diff(range(v))
+      best  <- names(cand)[which.min(sapply(cand, function(v) abs(width(v) - diff(usr))))]
+      message("x definition used by the plot: ", best)
+      print(sapply(cand, range)); print(usr)          # sanity check
       
-      dev.off()
+      x <- cand[[best]][idx]
+      o <- order(x)
       
-
+      #lines(x[o], tr$z_ci_hi[o], col = "white", lwd = 3, lty="dashed")   # halo for contrast
+     # lines(x[o], tr$z_ci_low[o], col = "white", lwd = 3, lty="dashed")   # halo for contrast
+      #lines(x[o], tr$z_transition_m[o], col = "white", lwd = 3)   # halo for contrast
+      lines(x[o], tr$z_transition_m[o], col = "white", lwd = 1.5, lty="dashed")
+      points(x[o], tr$z_transition_m[o], pch = 21, bg = "white")
       
-      
-      
-      
+      dev.off()      
       
       
       
