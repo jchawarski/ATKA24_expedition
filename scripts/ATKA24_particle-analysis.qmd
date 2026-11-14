@@ -242,15 +242,22 @@ print(unique(PART.IK$Depth))
 
 ```{r}
 
-PART.IK %>% filter(between(Depth, 0, 150)) %>%
+PART.NK %>% filter(between(Depth, 0, 400)) %>%
   
-  select(Profile, Depth, "LPM.128.256.um", LPM.256.512.um, LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
+  dplyr::select(Profile, Depth, 
+                LPM.32.64.um, 
+                LPM.64.128.um, 
+                LPM.128.256.um, 
+                LPM.256.512.um, 
+                LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth)) %>%
   group_by(name, Depth) %>% 
   summarise(count = mean(value))  %>%
   mutate(
     name = factor(
       name,
       levels = c(
+        "LPM.32.64.um",
+        "LPM.64.128.um",
         "LPM.128.256.um",
         "LPM.256.512.um",
         "LPM.0.512.1.02.mm"
@@ -258,18 +265,18 @@ PART.IK %>% filter(between(Depth, 0, 150)) %>%
     ))  %>%
   ggplot(aes(x=Depth, y=count, fill=name)) + geom_col() + 
   
-  scale_fill_manual(
-    values = c(
-      "LPM.128.256.um"    = "#009E73",
-      "LPM.256.512.um"    = "#0072B2",
-      "LPM.0.512.1.02.mm" = "#E69F00"
-    ),
-    labels = c("125-250 µm", "250-500 µm", "0.5-1mm"),
-    name="",
-  ) + 
+  #scale_fill_manual(
+    #values = c(
+  #    "LPM.128.256.um"    = "#009E73",
+   #   "LPM.256.512.um"    = "#0072B2",
+   #   "LPM.0.512.1.02.mm" = "#E69F00"
+   # ),
+   # labels = c("125-250 µm", "250-500 µm", "0.5-1mm"),
+   # name="",
+#  ) + 
     coord_flip() + 
-    scale_x_reverse(breaks = seq(0,150,25), expand = c(0,0)) +  
-    scale_y_sqrt(limits=c(0,13000), expand = c(0,0)) +
+    scale_x_reverse(breaks = seq(0,400,25), expand = c(0,0)) +  
+    scale_y_sqrt( expand = c(0,0)) +
  
     theme_bw() + theme(legend.position = "bottom")
 
@@ -359,7 +366,7 @@ PART.IK %>% filter(between(Depth, 0, 200)) %>%
 {
 nPSD <- PART.IK %>% 
   
-  select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
+  dplyr::select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
     
    # re-factor size classes by increasing size
    mutate(
@@ -517,20 +524,25 @@ nPSD_IK_summary <- nPSD %>%
     # Significance flag
     p_lt_0_05 = p_value < 0.05,
 
-    # Integrated particle metrics
+ # Integrated particle metrics
     total_abundance = sum(value, na.rm = TRUE),
     total_biovolume = sum(biovolume, na.rm = TRUE),
 
-    .groups = "drop"
-  )
+    # Log-transformed versions
+    log10_total_abundance = log10(total_abundance),
+    log10_total_biovolume = log10(total_biovolume),
+    mean_log_norm_abund   = mean(log10(norm_abund), na.rm = TRUE),
+
+    .groups = "drop")
+
 
 # Join summary metrics back to original PSD data
 nPSD_IK_with_model <- nPSD %>%
-  left_join(nPSD_IK_summary, by = c("Profile", "Depth"))
+  left_join(nPSD_NK_summary, by = c("Profile", "Depth"))
 
 
 write.csv(
-  nPSD_IK_summary %>% select(-model),
+  nPSD_IK_summary %>% dplyr::select(-model),
   file = here("data/intermediate/ATKA24_IK_nPSD_reduced_modelresults.csv"),
   row.names = FALSE
 )
@@ -579,6 +591,8 @@ library(scico)
 
 # CREATE OCEANOGRAPHIC SECTIONS FROM PSD METRICS
 
+# ISERTUP KANGERTIVA
+
 # derive station metadata 
 IK.summary <- data.frame(unique(PART.IK$Profile), unique(PART.IK$Latitude), unique(PART.IK$Longitude))
 colnames(IK.summary) <- c("station", "Latitude", "Longitude")
@@ -606,7 +620,7 @@ station_order <- names(station_depths)
 psd_section_data <- nPSD_IK_summary %>%
   left_join(
     IK.summary %>%
-      select(station, Longitude, Latitude) %>%
+      dplyr::select(station, Longitude, Latitude) %>%
       distinct(),
     by = c("Profile" = "station")
   ) %>%
@@ -635,15 +649,11 @@ ctd_list <- lapply(station_list, function(psd) {
   )
 
   # Add PSD-derived variables
-  extra_vars <- c(
-    "slope",
-    "intercept",
-    "r2",
-    "p_value",
-    "p_lt_0_05",
-    "total_abundance",
-    "total_biovolume"
-  )
+extra_vars <- c(
+  "slope", "intercept", "r2", "p_value", "p_lt_0_05",
+  "total_abundance", "total_biovolume",
+  "log10_total_abundance", "log10_total_biovolume", "mean_log_norm_abund"
+)
 
   for (var in extra_vars) {
     ctd[[var]] <- psd[[var]]
@@ -742,7 +752,6 @@ cols <- scico(100, palette = "lajolla")
 
 #breaks <- seq(-3.5, -1.5, length.out = 101)
 
-
 plot(
     ctd.section,
     labels = station_names,
@@ -757,6 +766,39 @@ plot(
   )
   
 grDevices::dev.off()
+
+
+# Log Particle Abundance
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_IK_logparticleabundance_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "lajolla")
+
+breaks <- seq(3.7, 4.9, length.out = 101)
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "log10_total_abundance",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    zbreaks = breaks,
+    zcol = cols
+  )
+        lines(x[o], tr$z_transition_m[o], col = "white", lwd = 1.5, lty="dashed")
+      points(x[o], tr$z_transition_m[o], pch = 21, bg = "white")
+
+grDevices::dev.off()
+
 
 # Particle Biovolume
 
@@ -785,7 +827,7 @@ plot(
     #zbreaks = breaks,
     zcol = cols
   )
-  
+
 grDevices::dev.off()
 
 
@@ -807,7 +849,7 @@ grDevices::dev.off()
 
 nPSD <- PART.NK %>% 
   
-  select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
+  dplyr::select(Profile, Depth, Sampledvol.ume, LPM.32.64.um:LPM.0.512.1.02.mm) %>% pivot_longer(cols= c(-Profile, -Depth, -Sampledvol.ume)) %>%
     
    # re-factor size classes by increasing size
    mutate(
@@ -889,4 +931,265 @@ nPSD_NK_summary %>%
 
 ```
 
+
+```{r}
+library(dplyr)
+library(oce)
+library(scico)
+
+
+# CREATE OCEANOGRAPHIC SECTIONS FROM PSD METRICS
+
+# NAGTIVIT KANGERTIVAT
+
+# derive station metadata 
+NK.summary <- PART.NK %>%
+  distinct(Profile, Latitude, Longitude)
+colnames(NK.summary) <- c("station", "Latitude", "Longitude")
+
+# Define station order and corresponding water depths
+station_depths <- c(
+  "atka24_18" = 245,
+  "atka24_17" = 270,
+  "atka24_16" = 310,
+  "atka24_21" = 357,
+  "atka24_23" = 320,
+  "atka24_24" = 308,
+  "atka24_30" = 350,
+  "atka24_31" = 405,
+  "atka24_32" = 410,
+  "atka24_36" = 250,
+  "atka24_37" = 205)
+
+
+# Establish station order
+station_order <- names(station_depths)
+
+# Match PSD profiles to CTD station metadata
+psd_section_data <- nPSD_NK_summary %>%
+  left_join(
+    NK.summary %>%
+      dplyr::select(station, Longitude, Latitude) %>%
+      distinct(),
+    by = c("Profile" = "station")
+  ) %>%
+  mutate(
+    Profile = factor(Profile, levels = station_order)
+  ) %>%
+  arrange(Profile, Depth)
+
+# Split PSD data by profile, preserving station order
+station_list <- split(
+  psd_section_data,
+  psd_section_data$Profile,
+  drop = TRUE
+)
+
+# Create CTD objects for each profile
+ctd_list <- lapply(station_list, function(psd) {
+
+  ctd <- as.ctd(
+    salinity = rep(NA_real_, nrow(psd)),
+    temperature = rep(NA_real_, nrow(psd)),
+    pressure = psd$Depth,
+    longitude = unique(psd$Longitude),
+    latitude = unique(psd$Latitude),
+    station = as.character(unique(psd$Profile))
+  )
+
+  # Add PSD-derived variables
+extra_vars <- c(
+  "slope", 
+  "intercept", 
+  "r2", 
+  "p_value", 
+  "p_lt_0_05",
+  "total_abundance",
+  "total_biovolume",
+  "log10_total_abundance", 
+  "log10_total_biovolume", 
+  "mean_log_norm_abund"
+)
+  for (var in extra_vars) {
+    ctd[[var]] <- psd[[var]]
+  }
+
+  return(ctd)
+})
+
+# Combine profiles into section
+ctd.section <- as.section(ctd_list)
+
+# Assign water depth to each station by station name
+for (i in seq_along(ctd.section[["station"]])) {
+
+  station_name <- ctd.section[["station"]][[i]][["metadata"]][["station"]]
+
+  ctd.section[["station"]][[i]][["metadata"]][["waterDepth"]] <-
+    unname(station_depths[station_name])
+}
+
+
+# Basic section plotting use oce
+library(scico)
+output_dir <- "C:/Users/jchawarski/OneDrive - ASL Environmental Sciences Inc/Projects/Atka Expedition - SW Greenland/ATKA24_expedition/figs"
+
+# nPSD slope
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_NK_nPSDslope_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "vik")
+
+breaks <- seq(-3.5, -1.5, length.out = 101)
+
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "slope",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    zbreaks = breaks,
+    zcol = cols
+  )
+  
+grDevices::dev.off()
+
+
+# nPSD intercept
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_NK_nPSDintercept_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "devon")
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "intercept",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    zcol = cols
+  )
+  
+grDevices::dev.off()
+
+
+
+# Particle Abundance
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_NK_particleabundance_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "lajolla")
+
+#breaks <- seq(-3.5, -1.5, length.out = 101)
+
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "total_abundance",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    #zbreaks = breaks,
+    zcol = cols
+  )
+  
+grDevices::dev.off()
+
+
+# Log Particle Abundance
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_NK_logparticleabundance_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "lajolla")
+
+#breaks <- seq(-3.5, -1.5, length.out = 101)
+
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "log10_total_abundance",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    #zbreaks = breaks,
+    zcol = cols
+  )
+  
+grDevices::dev.off()
+
+
+
+# Particle Biovolume
+
+grDevices::png(
+  filename = file.path(output_dir, "ATKA_24_NK_particlebiovolume_section.png"),
+  width = 2400,
+  height = 1600,
+  res = 300,
+  type = "cairo"
+)
+
+cols <- scico(100, palette = "managua", direction = -1)
+
+#breaks <- seq(-3.5, -1.5, length.out = 101)
+
+
+plot(
+    ctd.section,
+    labels = station_names,
+    which = "total_biovolume",
+    ztype = "image",
+    ytype = "depth",
+    ylim = c(400, 0),
+    legend.loc = "",
+    showStations = TRUE,
+    #zbreaks = breaks,
+    zcol = cols
+  )
+  
+grDevices::dev.off()
+
+
+
+
+
+
+```
 

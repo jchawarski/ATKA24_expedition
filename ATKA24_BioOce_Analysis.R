@@ -661,15 +661,20 @@ require(TTR) # requires for SMA()
        group_by(fjord) %>%
        summarise(
          n        = sum(is.finite(delta_Kd)),
+         # optical transition depth: mean and range
+         z_mean   = mean(z_transition_m, na.rm = TRUE),
+         z_min    = min(z_transition_m, na.rm = TRUE),
+         z_max    = max(z_transition_m, na.rm = TRUE),
+         # delta Kd
          kd_mean  = mean(delta_Kd, na.rm = TRUE),
          kd_lower = ci_t(delta_Kd)[1],
          kd_upper = ci_t(delta_Kd)[2],
+         # percent surface light
          sl_mean  = mean(pct_surface_light, na.rm = TRUE),
          sl_lower = ci_t(pct_surface_light)[1],
          sl_upper = ci_t(pct_surface_light)[2],
          .groups = "drop"
        )
-     
      optic_summary
      
 ##### CREATE OCEANOGRAPHIC SECTIONS
@@ -1087,14 +1092,120 @@ require(TTR) # requires for SMA()
       
       
       
+###### INTEGRATED CHLOROPHYLL ######
+      
+      z_max     <- 100          # m, integrate from surface to this depth
+      bin_size  <- 1            # m
+      chl_col   <- "CLW_chl_a"  # ug/L = mg m^-3
+      min_cover <- 0.9          # data must reach this fraction of the integration depth
+      
+      int_chl <- function(d, zmax = z_max) {
+        d <- d[seq_len(which.max(d$depth)), ]                      # downcast only
+        d <- d[is.finite(d$depth) & is.finite(d[[chl_col]]) &
+                 d$depth >= 0 & d$depth <= zmax, ]
+        if (nrow(d) < 5) return(data.frame(int_chl = NA_real_, z_deepest = NA_real_, n_bins = 0L))
+        
+        d$bin <- floor(d$depth / bin_size) * bin_size + bin_size / 2
+        b <- aggregate(d[[chl_col]], list(z = d$bin), median)      # median per depth bin
+        names(b) <- c("z", "chl")
+        b <- b[order(b$z), ]
+        b <- rbind(data.frame(z = 0, chl = b$chl[1]), b)           # extend shallowest value to 0 m
+        
+        zd <- max(b$z)
+        I  <- sum(diff(b$z) * (head(b$chl, -1) + tail(b$chl, -1)) / 2)   # trapezoid, mg m^-2
+        data.frame(int_chl = if (zd >= min_cover * zmax) I else NA_real_,
+                   z_deepest = zd, n_bins = nrow(b))
+      }
+      
+      chl_int <- CTD.all %>%
+        mutate(datetime = as.POSIXct(datetime, tz = "UTC")) %>%
+        arrange(Site, datetime) %>%
+        group_by(fjord, Site) %>%
+        group_modify(~ int_chl(.x)) %>%
+        ungroup()
+      
+      # Mean and 95% CI per fjord (t-based)
+      ci_t <- function(x, level = 0.95) {
+        x <- x[is.finite(x)]; n <- length(x)
+        if (n < 2) return(c(NA_real_, NA_real_))
+        mean(x) + c(-1, 1) * qt(1 - (1 - level) / 2, n - 1) * sd(x) / sqrt(n)
+      }
+      
+      chl_summary <- chl_int %>%
+        group_by(fjord) %>%
+        summarise(n = sum(is.finite(int_chl)),
+                  chl_mean  = mean(int_chl, na.rm = TRUE),
+                  chl_lower = ci_t(int_chl)[1],
+                  chl_upper = ci_t(int_chl)[2],
+                  .groups = "drop")
       
       
       
+### RUN STATISTICS on Chl ###
+      
+      d <- chl_int %>% filter(is.finite(int_chl), !is.na(fjord))
+      
+      # Check assumptions
+      shapiro.test(residuals(aov(int_chl ~ fjord, data = d)))
+      bartlett.test(int_chl ~ fjord, data = d)
+      
+      # Welch ANOVA (unequal variances, unequal n)
+      oneway.test(int_chl ~ fjord, data = d, var.equal = FALSE)
+      
+      # Non-parametric alternative (safer with n = 4 in Sermilik)
+      kruskal.test(int_chl ~ fjord, data = d)
+      
+      # Pairwise follow-up, only if the overall test is significant
+      pairwise.wilcox.test(d$int_chl, d$fjord, p.adjust.method = "holm")
       
       
+
+      
+##### MIXED LAYER DEPTH ######
+      
+      library(oce)
+      library(dplyr)
       
       
+      ref_depth <- 1      # m, shallowest reliable sample (first record is ~0.6 m)
+      d_sigma   <- 0.03   # kg m^-3
+      bin_m     <- 0.5    # m, finer bins (records are ~0.4 m apart)
       
+      
+      mld_one <- function(d) {
+        d <- d[seq_len(which.max(d$depth)), ]                     # downcast
+        d <- d[is.finite(d$depth) & is.finite(d$salinity) & is.finite(d$temperature) &
+                 d$depth <= z_max, ]
+        if (nrow(d) < 10) return(data.frame(mld_thresh = NA_real_, z_nsq_max = NA_real_))
+        
+        d$sigma <- swSigmaTheta(d$salinity, d$temperature, pressure = d$depth, referencePressure = 0)
+        
+        # 1 m bins, median per bin
+        d$bin <- floor(d$depth / bin_m) * bin_m + bin_m / 2
+        b <- aggregate(sigma ~ bin, data = d, FUN = median)
+        names(b) <- c("z", "sigma")
+        b <- b[order(b$z), ]
+        
+        # Threshold method
+        s_ref <- approx(b$z, b$sigma, xout = ref_depth, rule = 2)$y
+        hit   <- which(b$z > ref_depth & b$sigma >= s_ref + d_sigma)[1]
+        mld_t <- if (is.na(hit)) NA_real_ else
+          approx(b$sigma[c(hit - 1, hit)], b$z[c(hit - 1, hit)], xout = s_ref + d_sigma)$y
+        
+        # Maximum N^2 (smoothed)
+        sm   <- stats::filter(b$sigma, rep(1 / 3, 3), sides = 2)       # 3-point smoothing
+        n2   <- 9.81 / 1027 * c(NA, diff(as.numeric(sm)) / diff(b$z))
+        z_n2 <- b$z[which.max(n2)]
+        
+        data.frame(mld_thresh = mld_t, z_nsq_max = z_n2)
+      }
+      
+      mld <- CTD.all %>%
+        mutate(datetime = as.POSIXct(datetime, tz = "UTC")) %>%
+        arrange(Site, datetime) %>%
+        group_by(fjord, Site) %>%
+        group_modify(~ mld_one(.x)) %>%
+        ungroup()
       
       
       
